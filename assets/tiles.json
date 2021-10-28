@@ -1,0 +1,37 @@
+{
+"source":"sprites.png",
+"x_offset":0,
+"y_offset":0,
+ "width" : 16,
+ "height" : 16,
+ "horizontal" : true,
+ "objects":[{
+   "name":"monkey_updown",
+   "frames":2,
+   "start_x":0,
+   "start_y":0
+ },
+ {
+   "name":"monkey_left",
+   "frames":2,
+   "start_x":32,
+   "start_y":0
+ },
+ 
+{
+   "name":"monkey_right",
+    "frames":2,
+   "start_x":128,
+   "start_y":0
+ },
+{
+   "name":"monkey_dead",
+    "frames":3,
+   "start_x":192,
+   "start_y":0
+ }
+
+ 
+
+ ]
+}
