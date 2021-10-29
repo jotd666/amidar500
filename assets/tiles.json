@@ -6,32 +6,136 @@
  "height" : 16,
  "horizontal" : true,
  "objects":[{
-   "name":"monkey_updown",
+   "name":"copier_updown",
    "frames":2,
    "start_x":0,
    "start_y":0
  },
  {
-   "name":"monkey_left",
+   "name":"copier_left",
    "frames":2,
    "start_x":32,
    "start_y":0
  },
  
 {
-   "name":"monkey_right",
+   "name":"copier_right",
     "frames":2,
    "start_x":128,
    "start_y":0
  },
 {
-   "name":"monkey_dead",
+   "name":"copier_dead",
     "frames":3,
    "start_x":192,
    "start_y":0
- }
-
+ },
  
+ {
+   "name":"rustler_up",
+   "frames":2,
+   "start_x":0,
+   "start_y":64
+ },
+ {
+   "name":"rustler_left",
+   "frames":2,
+   "start_x":32,
+   "start_y":64
+ },
+ {
+   "name":"rustler_down",
+   "frames":2,
+   "start_x":64,
+   "start_y":64
+ },
+ 
+{
+   "name":"rustler_right",
+    "frames":2,
+   "start_x":96,
+   "start_y":64
+ },
+{
+   "name":"rustler_dead",
+    "frames":3,
+   "start_x":128,
+   "start_y":64
+ },
+{
+   "name":"police",
+   "sprite_number":0,
+    "frames":4,
+   "start_x":0,
+   "start_y":16
+ },
+{
+   "name":"police_jump",
+   "sprite_number":0,
+    "frames":2,
+   "start_x":64,
+   "start_y":16
+ },
+{
+   "name":"police_hang",
+   "sprite_number":0,
+    "frames":2,
+   "start_x":96,
+   "start_y":16
+ },
+{
+   "name":"police_fall",
+   "sprite_number":0,
+    "frames":4,
+   "start_x":128,
+   "start_y":16
+ },
+{
+   "name":"scores",
+    "frames":5,
+   "start_x":0,
+   "start_y":128
+ },
 
+{
+   "name":"bonus_5000",
+    "frames":1,
+   "start_x":96,
+   "start_y":128
+ },
+{
+   "name":"banana",
+    "frames":1,
+   "start_x":80,
+   "start_y":128
+ },
+{
+      "blit_pad":false,
+   "name":"star",
+    "frames":1,
+   "start_x":120,
+   "start_y":136,
+   "width":8,
+   "height":8
+ }, 
+ {
+      "blit_pad":false,
+   "name":"apple",
+    "frames":1,
+   "start_x":128,
+   "start_y":136,
+   "width":8,
+   "height":8
+ }, 
+{
+      "blit_pad":false,
+   "name":"life",
+    "frames":1,
+   "start_x":136,
+   "start_y":136,
+   "width":8,
+   "height":8
+ } 
+ 
  ]
 }

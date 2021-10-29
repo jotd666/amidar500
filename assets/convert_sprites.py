@@ -1,18 +1,27 @@
-import os,bitplanelib,json,subprocess
+import os,bitplanelib,json
 from PIL import Image
 
 sprites_dir = "sprites"
 
+#for level 2 (paint)
+square_scores = [500,350,300,250,280,150,100,450,400,450,280,230,200,300,
+700,450,280,230,200,150,100,450,400,330,250,280,230,150,300,
+500,300,330,250,230,180,150,100]
 
 def process_maze():
-    maze = Image.open("maze_{}.png".format(i))
+    maze = Image.open("level1.png")
 
     # now the big time saver: detect maze walls & dots from MAME screenshots
     img = Image.new("RGB",(maze.size[0],maze.size[1]-24-16))
     img.paste(maze,(0,-24))
-            # pixel 0,5 or 47 holds the outline color of the maze wall for all mazes
+    img.save("try.png")
+    for i,x in enumerate(range(8,208,40)):
+        for j,y in enumerate(range(4,210,8)):
+            # if not black then there's an horizontal segment here
+            p = img.getpixel((x+4,y+3))
+            if p != (0,0,0):
+                print(i,j)
     if False:
-            outline_color = img.getpixel((0,y))
             fill_color = img.getpixel((1,y))
             if outline_color != (0,0,0):
                 pass
@@ -119,7 +128,7 @@ game_palette_level_1 = """
     dc.w    $0fff   ; white
     dc.w    $0f00       ; red   (pos 12)
 
-    dc.w   $0,$0,$0
+    dc.w   $0E5D,$EED,$0
 """
 
 game_palette_level_1_sprites = """
@@ -154,12 +163,11 @@ def process_tiles():
 
     sprites = Image.open(sprite_page)
 
-    name_dict = {"bonus_scores_{}".format(i):"bonus_scores_"+n for i,n in enumerate(["200","400","800","1600","3200"])}
+    name_dict = {"scores_{}".format(i):"scores_"+n for i,n in enumerate(["200","400","800","1600","3200"])}
     # we first did that to get the palette but we need to control
     # the order of the palette
 
-    #game_palette = bitplanelib.palette_extract(img,0xF0)
-    #bitplanelib.palette_dump(game_palette,"palette.s")
+
 
 
 
@@ -170,13 +178,13 @@ def process_tiles():
 
         blit_pad = object.get("blit_pad",True)
         name = object["name"]
+        print(name)
         start_x = object["start_x"]+x_offset
         start_y = object["start_y"]+y_offset
         horizontal = object.get("horizontal",default_horizontal)
         width = object.get("width",default_width)
         height = object.get("height",default_height)
 
-        print(name)
 
         nb_frames = object["frames"]
         for i in range(nb_frames):
@@ -213,8 +221,8 @@ def process_tiles():
                     sprite_palette,palette_precision_mask=0xF0)
             else:
                 # blitter object
-                if x_size % 16:
-                    raise Exception("{} (frame #{}) with should be a multiple of 16, found {}".format(name,i,x_size))
+##                if x_size % 16:
+##                    raise Exception("{} (frame #{}) with should be a multiple of 16, found {}".format(name,i,x_size))
                 # pacman is special: 1 plane
                 p = bitplanelib.palette_extract(cropped_img,palette_precision_mask=0xF0)
                 # add 16 pixelsblit_pad
@@ -305,7 +313,7 @@ def process_fonts(dump=False):
             namei = "{}_{}".format(name,i) if nb_frames != 1 else name
             bitplanelib.palette_image2raw(img,"../{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,palette_precision_mask=0xF0)
 
-#process_mazes()
+process_maze()
 
 process_tiles()
 
