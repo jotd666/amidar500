@@ -35,12 +35,13 @@ def process_maze():
         current_rect = None
         rows.append(row)
 
+    NB_H_TILES = 26
 
-    last_row = [1]*26
+    last_row = [1]*NB_H_TILES
     last_row[10:16] = [0]*6
-    dot_matrix = [[0]*26 for _ in range(26)]
+    dot_matrix = [[0]*NB_H_TILES for _ in range(26)]
     for row in dot_matrix:
-        for i in range(0,26,5):
+        for i in range(0,NB_H_TILES,5):
             row[i] = 1
 
     dot_matrix.append(last_row)
@@ -314,4 +315,4 @@ process_maze()
 
 process_tiles()
 
-#process_fonts()
+process_fonts()

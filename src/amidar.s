@@ -137,8 +137,10 @@ NB_PLANES   = 4
 NB_TILES_PER_LINE = NB_BYTES_PER_MAZE_LINE
 NB_TILE_LINES = 27
 MAZE_HEIGHT = NB_TILES_PER_LINE*8
-MAZE_ADDRESS_OFFSET = 4*NB_BYTES_PER_LINE+1
+MAZE_ADDRESS_OFFSET = 6*NB_BYTES_PER_LINE+1
 
+Y_MAX = MAZE_HEIGHT
+X_MAX = NB_BYTES_PER_MAZE_LINE*8
 
 ; messages from update routine to display routine
 MSG_NONE = 0
@@ -826,15 +828,17 @@ init_enemies
     
 
 init_player
+    clr.l   previous_valid_direction
     clr.w   death_frame_offset
     clr.l   previous_player_address   ; no previous mspacman position
     ; if there was a bonus running, remove it
 
     
     lea player(pc),a0
+    move.l  #maze_1_wall_table,maze_wall_table
     move.l  #'COPI',character_id(a0)
     move.w  #NB_TILES_PER_LINE*4,xpos(a0)
-	move.w	#MAZE_HEIGHT-2,ypos(a0)
+	move.w	#Y_MAX,ypos(a0)
 	move.w 	#LEFT,direction(a0)
     clr.w  speed_table_index(a0)
     move.w  #-1,h_speed(a0)
@@ -1483,7 +1487,7 @@ draw_stars:
     moveq   #2,d7
 .lloop
     lea star,a0
-    lea	screen_data+NB_BYTES_PER_MAZE_LINE-4+(NB_BYTES_PER_LINE)*(MAZE_HEIGHT+16),a1
+    lea	screen_data+NB_BYTES_PER_MAZE_LINE-4+(NB_BYTES_PER_LINE)*(MAZE_HEIGHT+18),a1
     add.l   d7,a1
     moveq   #3,d2
 .ploop
@@ -1498,7 +1502,7 @@ draw_stars:
 .out
     lea     .jump(pc),a0
     move.w  #(NB_BYTES_PER_MAZE_LINE-9)*8,d0
-    move.w  #MAZE_HEIGHT+16,d1
+    move.w  #MAZE_HEIGHT+18,d1
     move.w  #$0F0,d2
     bsr     write_color_string
     rts
@@ -1507,7 +1511,7 @@ draw_stars:
         dc.b    "JUMP",0
         even
         
-LIVES_OFFSET = (MAZE_HEIGHT+16)*NB_BYTES_PER_LINE+1
+LIVES_OFFSET = (MAZE_HEIGHT+18)*NB_BYTES_PER_LINE+1
 draw_lives:
     moveq.w #3,d7
     lea	screen_data+LIVES_OFFSET,a1
@@ -2480,24 +2484,66 @@ update_player
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
 
-    move.w  direction(a4),d6
-
-    ; priority to vertical move (direction change)
-    ; if pre/post turn in progress don't try to turn
-
-
-    bsr.b .vtest    
-.novtest1
-    bsr.b .htest
-    bra.b   .pills
-.horiz_first
-    ; TODO
-    bsr .htest
-.nohtest1    
-    bsr.b .vtest
-.pills
-    move.w  xpos(a4),d0
-    move.w  ypos(a4),d1
+    clr.w   d5
+    ;;move.w  direction(a4),d6
+    ; test if player has requested an "up" move
+    move.w  v_speed(a4),d6
+    beq.b   .no_vertical
+    bset    #0,d5   ; note that we attempted a move
+    ; up/down move requested
+    move.w  d2,d0
+    and.b   #7,d0
+    bne.b   .no_vertical    ; invalidated: not aligned in x
+    move.w  d2,d0
+    move.w  d3,d1
+    add.w   d6,d1  ; change y
+    bsr     is_location_legal
+    tst     d0
+    beq.b   .no_vertical
+    ; validate
+    add.w   d6,d3  ; change y
+    bset    #1,d5
+    tst.w   d6
+    bmi.b   .up
+    move.w  #DOWN,direction(a4)
+    bra.b   .no_vertical
+.up
+    move.w  #UP,direction(a4)
+.no_vertical
+    move.w   h_speed(a4),d6
+    beq.b   .no_horizontal
+    bset    #0,d5   ; note that we attempted a move
+    ; left/right move requested
+    LOGPC   100
+    move.w  d3,d1
+    and.b   #7,d1
+    bne.b   .no_horizontal    ; invalidated: not aligned in y
+    move.w  d2,d0
+    move.w  d3,d1
+    add.w   d6,d0  ; change x
+    bsr     is_location_legal
+    tst     d0
+    beq.b   .no_horizontal
+    ; validate
+    add.w   d6,d2  ; change x
+    bset    #1,d5
+    tst.w   d6
+    bmi.b   .left
+    move.w  #RIGHT,direction(a4)
+    bra.b   .no_horizontal
+.left
+    move.w  #LEFT,direction(a4)
+.no_horizontal
+    tst.w   d5
+    beq.b   .no_move
+    
+    cmp.w   #3,d5
+    beq.b   .valid_move
+    
+.valid_move
+    bsr animate_player    
+    move.w  d2,xpos(a4)
+    move.w  d3,ypos(a4)
     bsr is_on_bonus
     move.b   d0,d2
     beq.b   .end_pac    ; nothing
@@ -2505,140 +2551,27 @@ update_player
     lea	screen_data,a1
     move.w  xpos(a4),d0
     move.w  ypos(a4),d1
-    ; are we y-aligned?
-    and.w   #$1F8,d1
+
     
-    ADD_XY_TO_A1    a0
+   ;; ADD_XY_TO_A1    a0
 
 
-    eor.b   #1,eat_toggle
-    beq.b   .s2
-    lea eat_1_sound(pc),a0
-    bra.b   .scont
-.s2
-    lea eat_2_sound(pc),a0
+    ;lea eat_1_sound(pc),a0
+
 .scont
-    bsr play_fx
-    bsr clear_dot
+ ;   bsr play_fx
+  ;  bsr clear_dot
 .score
     ; dot
 
-
-    move.b  nb_dots_eaten(pc),d4
-
-    cmp.b   total_number_of_dots(pc),d4
-    bne.b   .other
-    ; no more dots: win
-    bsr level_completed
-.other
-   
-    lea score_table(pc),a0
-    add.w   d2,d2
-    move.w  (a0,d2.w),d0
-    ext.l   d0
-    bsr     add_to_score
+    ;bsr     add_to_score
 .end_pac
+
+.no_move
     rts
 
-    
-.vtest
-    ; vertical move
-    ; re-set coords
-    move.w  d2,d0
-    move.w  d3,d1
-    move.w  v_speed(a4),d4
-    ; now check if speeds are applicable to player
-    beq.b   .no_vmove
-    ; are we x-aligned?
-    and.w   #$F8,d0
-    add.w   #4,d0
+.vtest:
 
-    ; are we y-aligned?
-    move.w  d0,d5   ; save d1 (aligned) into d5
-    sub.w   d2,d0
-    addq.w  #4,d0
-    ; d1 must be between 0 and 7 for pre-post turn
-    bmi.b   .no_vmove
-    cmp.w   #8,d0
-    bcc.b   .no_vmove
-
-    move.w  d5,d0   ; restore d0
-    
-    tst d4
-    bmi.b   .to_up
-    move.w  #DOWN,d6
-    add.w  #4,d1
-    bra.b   .contv
-.to_up
-    move.w  #UP,d6
-    sub.w  #5,d1
-.contv
-    bsr pacman_collides_with_maze
-    tst.b d0
-    beq.b   .can_move_vertically
-    ; cancel speed, note the turn
-    clr.w   v_speed(a4)
-    bra.b   .no_vmove
-.can_move_vertically
-    move.w  d6,direction(a4)
-        
-    add.w   d4,d3
-
-    move.w  d5,xpos(a4)
-    move.w  d3,ypos(a4)
-
-    bsr animate_player
-    clr.w   h_speed(a4)
-.no_vmove
-    rts
-    
-.htest
-    move.w  d2,d0
-    move.w  d3,d1
-    move.w  h_speed(a4),d4
-    ; now check if speeds are applicable to player
-    beq.b   .no_hmove
-    ; are we y-aligned?
-    and.w   #$1F8,d1
-    add.w   #4,d1
-    move.w  d1,d5   ; save d1 (aligned) into d5
-    sub.w   d3,d1
-    addq.w  #4,d1
-    ; d1 must be between 0 and 7 for pre-post turn
-    bmi.b   .no_hmove
-    cmp.w   #8,d1
-    bcc.b   .no_hmove
-
-    move.w  d5,d1   ; restore d1
-    tst d4
-    bmi.b   .to_left
-    move.w  #RIGHT,d6
-    add.w  #4,d0
-    bra.b   .conth
-.to_left
-    move.w  #LEFT,d6
-    sub.w  #5,d0
-.conth
-    bsr pacman_collides_with_maze
-    tst.b d0
-    beq.b   .can_move_horizontally
-    ; cancel speed
-    clr.w   h_speed(a4)
-    bra.b   .no_hmove
-.can_move_horizontally
-    ; set direction
-    move.w  d6,direction(a4)
-    
-    ; handle tunnel
-    add.w   d4,d2
-
-    move.w  d2,xpos(a4)
-    move.w  d5,ypos(a4)
-    bsr animate_player
-    clr.w   v_speed(a4)
-
-.no_hmove
-    rts
     
     IFD    RECORD_INPUT_TABLE_SIZE
 record_input:
@@ -2753,6 +2686,7 @@ draw_player:
 .pacblit
 
     move.w  xpos(a2),d3
+    
     move.w  ypos(a2),d4
     ; center => top left
     moveq.l #-1,d2 ; mask
@@ -2877,46 +2811,37 @@ is_on_bonus:
     clr.b   d0
     rts
     
-; what: checks if x,y collides with maze 
-; args:
-; < d0 : x (screen coords)
-; < d1 : y
-; > d0 : nonzero if collision (wall/pen gate), 0 if no collision
-; trashes: a0,a1,d1
-
-pacman_collides_with_maze
-;    bsr collides_with_maze
-;    cmp.b   #P,d0
-;    bcc.b   .wall
-    moveq.l #0,d0
-    rts
-.wall
-    moveq.l #1,d0
-    rts
     
-
 ; what: checks if x,y collides with maze 
 ; args:
 ; < d0 : x (screen coords)
 ; < d1 : y
-; > d0 : nonzero (1,2) if collision (wall/pen gate), 0 if no collision
-; W = 4   ; wall
-; P = 3   ; pen space (pac block)
-; T = 2   ; tunnel
-; B = 1   ; ghost block
-; O = 0   ; empty
+; > d0 : 1 if collision, 0 if no collision
 ; trashes: a0,a1,d1
 
-collides_with_maze:
-    move.l maze_wall_table(pc),a0
+is_location_legal:
+    LOGPC   100
+    cmp.w   #Y_MAX+1,d1
+    bcc.b   .out_of_bounds
+    cmp.w   #X_MAX+1,d0
+    bcc.b   .out_of_bounds
+    tst.w   d0
+    bmi.b   .out_of_bounds
+    tst.w   d1
+    bmi.b   .out_of_bounds
     ; apply x,y offset
-    lsr.w   #3,d1       ; 8 divide
-    lsl.w   #5,d1       ; times 32
+    lsr.w   #3,d1       ; 8 divide : tile
+    lea     mul26_table(pc),a0
+    add.w   d1,d1
+    move.w  (a0,d1.w),d1    ; times 26
+    move.l maze_wall_table(pc),a0
     add.w   d1,a0
     lsr.w   #3,d0   ; 8 divide
-    move.b  (a0,d0.w),d0
+    move.b  (a0,d0.w),d0    ; retrieve value
     rts
-
+.out_of_bounds
+    clr.b   d0
+    rts
    
 
 ; what: blits 16x16 data on one plane
@@ -3614,7 +3539,8 @@ next_ghost_iteration_score
     dc.w    0
 previous_player_address
     dc.l    0
-
+previous_valid_direction
+    dc.l    0
 
 score_frame
     dc.l    0
