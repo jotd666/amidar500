@@ -1655,6 +1655,13 @@ draw_maze:
     or.b    d2,(4,A1,d1)
     bra.b   .seploop
 .out
+    ; backup this plane so we can restore background
+    lea grid_backup_plane,a1
+    move.l  #SCREEN_PLANE_SIZE/4-1,d0
+    lea screen_data,a0
+.bup
+    move.l  (a0)+,(a1)+
+    dbf d0,.bup
     
     lea screen_data+SCREEN_PLANE_SIZE*2,a1
     bsr clear_playfield_plane
@@ -2692,7 +2699,10 @@ level_completed:
     rts
 
 	
-    
+; the palette is organized so we only need to blit planes 0, 2 and 3 (not 1)
+; plane 1 contains dots so it avoids to redraw it
+; plane 0 contains the grid, that has been backed up
+; plane 2 or 3 contains filled up rectangles, needs backing up too TODO
 draw_player:
     move.l  previous_player_address(pc),d5    
     lea     player(pc),a2
@@ -2710,11 +2720,25 @@ draw_player:
     bra.b   .pacblit
 
 .normal
-    ; first, remove first plane
+    ; first, remove plane 2
     tst.l   d5    
     beq.b   .no_erase
+    ; restore plane 0 using CPU
+    lea grid_backup_plane,a0    
+    lea screen_data,a1
+    move.l  d5,d0
+    sub.l   a1,d0
+    ; d0 is the offset: add it
+    add.l   d0,a1
+    add.l   d0,a0
+    ; now copy a rectangle of the saved screen
+    REPT    18
+    move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a0),((REPTN-1)*NB_BYTES_PER_LINE,a1)
+    ENDR
+
     ; erase first plane
     move.l  d5,a1
+    add.w   #SCREEN_PLANE_SIZE*2,a1
     REPT    18
     clr.l   ((REPTN-1)*NB_BYTES_PER_LINE,a1)
     ENDR
@@ -2727,30 +2751,40 @@ draw_player:
     add.w   d0,d0
     move.l  (a0,d0.w),a0
 .pacblit
-    move.w  xpos(a2),d0
-    bpl.b   .do_draw
-    rts
-.do_draw
-    move.w  ypos(a2),d1
+
+    move.w  xpos(a2),d3
+    move.w  ypos(a2),d4
     ; center => top left
     moveq.l #-1,d2 ; mask
 
+    lea	screen_data,a1
+    
+    move.l  a1,a6
+    move.w d3,d0
+    move.w d4,d1
+
+    ; plane 0
+    move.l  a1,a2
+    lea (BOB_16X16_PLANE_SIZE*4,a0),a3
+    bsr blit_plane_cookie_cut
+    move.l  a1,previous_player_address
+    
     lea	screen_data+SCREEN_PLANE_SIZE*2,a1
     
-    lea (BOB_16X16_PLANE_SIZE*2,a0),a0    ; skip first plane for bitmap
+    ; plane 2
+    lea (BOB_16X16_PLANE_SIZE*2,a0),a0
     move.l  a1,a6
-    move.w d0,d3
-    move.w d1,d4
+    move.w d3,d0
+    move.w d4,d1
 
     bsr blit_plane    
-    move.l  a1,previous_player_address
     
     ; remove previous second plane before blitting the new one
     ; nice as it works in parallel with the first plane blit started above
     tst.l   d5    
     beq.b   .no_erase2
     move.l  d5,a1
-    add.w   #SCREEN_PLANE_SIZE,a1
+    add.w   #SCREEN_PLANE_SIZE*3,a1
     REPT    18
     clr.l   ((REPTN-1)*NB_BYTES_PER_LINE,a1)
     ENDR
@@ -2758,12 +2792,10 @@ draw_player:
     
     move.w d3,d0
     move.w d4,d1
-    ; no cookie cut
+
     lea (SCREEN_PLANE_SIZE,a6),a1
     lea (BOB_16X16_PLANE_SIZE,a0),a0    ; next plane for bitmap
-    ; no need to blit data from plane 4: mspacman colors fit into planes 2-3
-    ; planes, saves some bandwidth and some cookie-cutting
-    ; ATM only fruit bonus needs cookie-cutting
+    ; plane 3
     bra blit_plane
 
     
@@ -4060,6 +4092,8 @@ record_input_table:
     ds.b    RECORD_INPUT_TABLE_SIZE
     ENDC
     
+grid_backup_plane
+    ds.b    SCREEN_PLANE_SIZE
 dot_table
     ds.b    NB_TILES_PER_LINE*NB_TILE_LINES*8
     

@@ -6,12 +6,14 @@
  "height" : 16,
  "horizontal" : true,
  "objects":[{
+     "generate_mask":true,
    "name":"copier_updown",
    "frames":2,
    "start_x":0,
    "start_y":0
  },
  {
+     "generate_mask":true,
    "name":"copier_left",
    "frames":2,
    "start_x":32,
@@ -19,12 +21,14 @@
  },
  
 {
-   "name":"copier_right",
+      "generate_mask":true,
+  "name":"copier_right",
     "frames":2,
    "start_x":128,
    "start_y":0
  },
 {
+     "generate_mask":true,
    "name":"copier_dead",
     "frames":3,
    "start_x":192,
@@ -32,32 +36,37 @@
  },
  
  {
-   "name":"rustler_up",
+      "generate_mask":true,
+  "name":"rustler_up",
    "frames":2,
    "start_x":0,
    "start_y":64
  },
  {
-   "name":"rustler_left",
+      "generate_mask":true,
+  "name":"rustler_left",
    "frames":2,
    "start_x":32,
    "start_y":64
  },
  {
-   "name":"rustler_down",
+      "generate_mask":true,
+  "name":"rustler_down",
    "frames":2,
    "start_x":64,
    "start_y":64
  },
  
 {
-   "name":"rustler_right",
+      "generate_mask":true,
+  "name":"rustler_right",
     "frames":2,
    "start_x":96,
    "start_y":64
  },
 {
-   "name":"rustler_dead",
+      "generate_mask":true,
+  "name":"rustler_dead",
     "frames":3,
    "start_x":128,
    "start_y":64
