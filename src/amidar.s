@@ -71,10 +71,8 @@ INTERRUPTS_ON_MASK = $E038
     UWORD    mode           ; current mode
     UWORD    flash_timer
     UWORD    flash_toggle_timer
-	UWORD	 xpen
-	UWORD	 ypen
     UBYTE    flashing_as_white
-    UBYTE    pad2
+    UBYTE    active
 	LABEL	 Enemy_SIZEOF
     
     ;Exec Library Base Offsets
@@ -157,7 +155,7 @@ GHOST_KILL_TIMER = (NB_TICKS_PER_SEC*5)/6
 PREPOST_TURN_LOCK = 4
 
 
-; direction enumerates, follows order of ghosts in the sprite sheet
+; direction enumerates, follows order of enemies in the sprite sheet
 RIGHT = 0
 LEFT = 1<<2
 UP = 2<<2
@@ -395,7 +393,7 @@ intro:
     bsr play_fx
 
 .game_start_loop
-    bsr random      ; so the ghosts aren't going to do the same things at first game
+    bsr random      ; so the enemies aren't going to do the same things at first game
     move.l  joystick_state(pc),d0
     tst.b   quit_flag
     bne.b   .out
@@ -718,8 +716,8 @@ hide_sprites:
     dbf d1,.emptyspr
     rts
     
-hide_ghost_sprites:
-    move.w  #3,d1
+hide_enemy_sprites:
+    move.w  #6,d1
     lea  sprites,a0
     lea empty_sprite,a1
 .emptyspr
@@ -745,16 +743,26 @@ set_normal_ghost_palette
 
 init_enemies
     move.b  d0,d4
-    lea ghosts(pc),a0
-    lea ghost_sprites,a1   ; the sprite part of the copperlist, sprite 1-7 are the ghost sprites
+    lea enemies+Enemy_SIZEOF(pc),a0
+    lea enemy_sprites,a1   ; the sprite part of the copperlist, sprite 1-7 are the ghost sprites
     lea game_palette+32(pc),a3  ; the sprite part of the color palette 16-31
     ; shared settings
-    moveq.w #3,d7
-    lea _custom+color+32,a4
+    moveq   #6,d7
+    ; clear all enemies
+.cloop
+    clr.b   active(a0)
+    add.w   #Enemy_SIZEOF,a0
+    dbf d7,.cloop
     
+    move.w nb_enemies(pc),d7
+    subq.w  #1,d7
+    lea _custom+color+32,a4
+    moveq.l #2,d0
 
+    lea enemies+Enemy_SIZEOF(pc),a0
 .igloop
     ; copy all 4 colors (back them up)
+    st.b    active(a0)
     move.l (a3)+,palette(a0)
     move.l (a3)+,palette+4(a0)
     move.l  a4,color_register(a0)
@@ -763,7 +771,7 @@ init_enemies
     
     addq.l  #8,a4   ; next color register range
     move.l  a1,copperlist_address(a0)
-    add.l   #16,a1
+    add.l   #8,a1
     
     tst.b   d4
     bne.b   .no_reset
@@ -775,18 +783,45 @@ init_enemies
 
     clr.b   flashing_as_white(a0)
     
+	move.w	#4,ypos(a0)
+	move.w	d0,xpos(a0)
+    add.w   #40,d0
+    move.w  #DOWN,direction(a0)
     
-
-	move.w	#40,ypos(a0)
-    
-    add.l   #Enemy_SIZEOF,a0
+    add.w   #Enemy_SIZEOF,a0
     dbf d7,.igloop
   
-.skip_dot_init    
+    ; thief
     
-    ; specific settings
-    lea ghosts(pc),a0
+    lea     enemies,a0
+    st.b    active(a0)
+    move.l (a3)+,palette(a0)
+    move.l (a3)+,palette+4(a0)
+    move.l  a4,color_register(a0)
+    move.w  #UP,direction(a0)
+    ; set/reset palette
+    ;;bsr set_normal_ghost_palette
+    move.l  #thief_sprite,copperlist_address(a0)
+	move.w	#MAZE_HEIGHT,ypos(a0)
+	move.w	#NB_BYTES_PER_MAZE_LINE*8-6,xpos(a0)
 
+
+    ; specific settings
+    lea enemies(pc),a0
+    move.l  #police1_police_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l  #police2_police_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police3_police_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police4_police_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police5_police_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police6_police_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police7_police_frame_table,frame_table(a0)
+    
     rts
     
 
@@ -849,7 +884,7 @@ DEBUG_X = 8     ; 232+8
 DEBUG_Y = 8
 
 ghost_debug
-    lea ghosts(pc),a2
+    lea enemies(pc),a2
     move.w  #DEBUG_X,d0
     move.w  #DEBUG_Y+100,d1
     lea	screen_data+SCREEN_PLANE_SIZE*3,a1 
@@ -1005,7 +1040,7 @@ draw_debug
 draw_enemies:
     tst.w  ghost_eaten_timer
     bmi.b   .no_ghost_eat
-    bsr hide_ghost_sprites
+    bsr hide_enemy_sprites
     
     ; store score
     lea player(pc),a4
@@ -1031,31 +1066,40 @@ draw_enemies:
     bmi.b   draw_enemies_normal
     cmp.w   #PLAYER_KILL_TIMER-NB_TICKS_PER_SEC,d6
     bcs.b   hide_sprites
-    ; clear the ghosts sprites after 1 second when pacman is killed
+    ; clear the enemies sprites after 1 second when pacman is killed
 draw_enemies_normal
-    lea ghosts(pc),a0
-    moveq.l #3,d7
-
+    lea enemies(pc),a0
+    move.w  nb_enemies(pc),d7   ; +thief
 .gloop
+    bsr .draw_enemy
+.next_ghost_iteration
+    add.l   #Enemy_SIZEOF,a0
+    dbf d7,.gloop
+    
+    rts
+
+.eyes
+ 
+
+    bra.b   .end_anim
+
+.draw_enemy
     move.w  xpos(a0),d0
     ; too on the right, don't draw sprite
-
 .do_display
-
     move.w  ypos(a0),d1
     ; center => top left
-    sub.w  #8,d0
-    sub.w  #4,d1    ; not 8, because maybe table is off?
     bsr store_sprite_pos
 .ssp
-    move.w  mode(a0),d3 ; scatter/chase/fright/return base
+    move.w  mode(a0),d3 ; normal/chase/fright/fall
 
     lea     palette(a0),a2      ; normal ghost colors
 
     move.l  frame_table(a0),a1
 
     move.w  frame(a0),d2
-    lsr.w   #2,d2   ; 8 divide to get 0,1, divide by 4 then mask after adding direction
+    
+    lsr.w   #2,d2   ; 8 divide to get 0,1
     cmp.w   #MODE_FRIGHT,d3
     bne.b   .no_fright
     ; change palette for that sprite
@@ -1073,16 +1117,15 @@ draw_enemies_normal
 .no_toggle
     move.w  d4,flash_toggle_timer(a0)
 .no_flashing
-    lea     frightened_ghosts_blue_palette(pc),a2
+    lea     frightened_enemies_blue_palette(pc),a2
     ; select proper palette (blue/white)
     tst.b   flashing_as_white(a0)
     beq.b   .no_white
     ; white flashing
-    lea     frightened_ghosts_white_palette(pc),a2
+    lea     frightened_enemies_white_palette(pc),a2
 .no_white
     bra.b   .fright
 .no_fright
-    add.w   direction(a0),d2     ; add 0,4,8,12 depending on direction
     bra.b   .no_white2
 .fright
     ; select proper fright sprite
@@ -1095,9 +1138,9 @@ draw_enemies_normal
     add.w   d2,d2       ; times 2
 .end_anim
     ; directly change color registers for that sprite
-    move.l  color_register(a0),a3
-    move.l  (a2)+,(a3)+
-    move.l  (a2)+,(a3)+
+;    move.l  color_register(a0),a3
+;    move.l  (a2)+,(a3)+
+;    move.l  (a2)+,(a3)+
 
     ; get proper frame from proper frame set
     move.l  (a1,d2.w),a1
@@ -1109,19 +1152,8 @@ draw_enemies_normal
     move.w  d2,(6,a1)
     swap    d2
     move.w  d2,(2,a1)    
-    
-
-.next_ghost_iteration
-    add.l   #Enemy_SIZEOF,a0
-    dbf d7,.gloop
     rts
     
-
-
-.eyes
- 
-
-    bra.b   .end_anim
      
 draw_all
     DEF_STATE_CASE_TABLE
@@ -1156,9 +1188,6 @@ PLAYER_ONE_Y = 102-14
 
 
     bsr draw_player
-
-
-
     bsr draw_enemies
 .after_draw
         
@@ -1381,7 +1410,7 @@ draw_intro_screen
     bsr write_color_string    
 
     
-    ; first update, don't draw ghosts or anything as they're not initialized
+    ; first update, don't draw enemies or anything as they're not initialized
     ; (draw routine is called first)
     rts
     
@@ -2065,6 +2094,7 @@ update_all
 
 .dec
     bsr update_player
+    bsr update_enemies
     
     addq.w  #1,state_timer
     rts
@@ -2072,25 +2102,17 @@ update_all
 
 
     rts
-.update_player_and_ghosts
+.update_player_and_enemies
 
-    ; collisions are checked more often to avoid the infamous
-    ; "pass through" bug. I would have loved to keep it, but it
-    ; seems that it happens a lot more with my version for an unknown reason
-    ; so since I'm not too short in CPU I'm performing the check twice as often
-    ; as soon as either pacman or the ghosts move
     
-    bsr check_pac_ghosts_collisions
 
-.nobonus2
-    bsr update_ghosts
-    bra check_pac_ghosts_collisions
+    bra check_pac_enemies_collisions
    
 
 
-; is done after both pacman & ghosts have been updated, maybe allowing for the
+; is done after both pacman & enemies have been updated, maybe allowing for the
 ; "pass-through" bug at higher levels
-check_pac_ghosts_collisions
+check_pac_enemies_collisions
     tst.w   player_killed_timer
     bmi.b   .check
     rts
@@ -2101,7 +2123,7 @@ check_pac_ghosts_collisions
     lsr.w   #3,d0
     lsr.w   #3,d1
     
-    lea ghosts(pc),a4
+    lea enemies(pc),a4
     moveq.w #3,d7
 .gloop
     move.w  xpos(a4),d2
@@ -2179,7 +2201,7 @@ update_intro_screen
     
     moveq.l #0,d0
     bsr init_enemies
-    lea ghosts(pc),a0
+    lea enemies(pc),a0
     moveq.w #3,d0
 .loop
     move.w  #260,xpos(a0)
@@ -2205,13 +2227,13 @@ update_intro_screen
     move.b  d0,(a0)+
     dbf d1,.dotloop2
 
-    ; now ghosts
+    ; now enemies
 
     move.w  .ghost_to_update(pc),d0
     cmp.w   #4*Enemy_SIZEOF,d0
     beq.b   .no_ghost
     
-    lea ghosts(pc),a0
+    lea enemies(pc),a0
     add.w   d0,a0
 
     ; animate ghost
@@ -2285,9 +2307,10 @@ update_intro_screen
 
     
     
-update_ghosts:
-    lea ghosts(pc),a4
-    moveq.w #3,d7
+update_enemies:
+    lea enemies(pc),a4
+    move.w nb_enemies(pc),d7
+    ;;subq.w  #1,d7
     move.w  player_killed_timer(pc),d6
     bmi.b   .gloop
     subq.w  #1,player_killed_timer
@@ -2296,18 +2319,21 @@ update_ghosts:
     move.w  #STATE_LIFE_LOST,current_state
     rts
 .glkill
+    bra .animate
+    
+.gloop
+    bra .animate
+    rts
+
+.animate
     ; player killed, just update ghost animations but don't move
     move.w  frame(a4),d1
     addq.w  #1,d1
     and.w   #$F,d1
     move.w  d1,frame(a4)
     add.w   #Enemy_SIZEOF,a4
-    dbf d7,.glkill
+    dbf d7,.animate
     rts
-    
-.gloop
-    rts
-
     
 play_loop_fx
     tst.b   demo_mode
@@ -2326,7 +2352,7 @@ power_pill_taken
 
     ; TODO change music
     
-    lea ghosts(pc),a0
+    lea enemies(pc),a0
     moveq.w  #3,d0
 .gloop
 
@@ -2511,7 +2537,6 @@ update_player
 .vtest
     ; vertical move
     ; re-set coords
-    LOGPC   100
     move.w  d2,d0
     move.w  d3,d1
     move.w  v_speed(a4),d4
@@ -3595,7 +3620,9 @@ cheat_keys
 death_frame_offset
     dc.w    0
 
-
+nb_enemies
+    dc.w    4
+    
 maze_outline_color
     dc.w    0
 maze_fill_color
@@ -3955,39 +3982,39 @@ speed_table:  ; lifted from https://github.com/shaunlebron/pacman/blob/master/sr
 speeds_level1:
                                             ; LEVEL 1
     dc.b   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ; pac-man (normal)
-    dc.b   0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ; ghosts (normal)
+    dc.b   0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ; enemies (normal)
     dc.b   1,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1 ; pac-man (fright)
-    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; ghosts (fright)
-    dc.b   0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1 ; ghosts (tunnel)
+    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; enemies (fright)
+    dc.b   0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1 ; enemies (tunnel)
     dc.b   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ; elroy 1
     dc.b   1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1 ; elroy 2
 speeds_level2_4:
                                            ; LEVELS 2-4
     dc.b   1,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1 ; pac-man (normal)
-    dc.b   1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1 ; ghosts (normal)
+    dc.b   1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1 ; enemies (normal)
     dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; pac-man (fright)
-    dc.b   0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,1 ; ghosts (fright)
-    dc.b   0,1,1,0,1,0,1,0,1,1,0,1,0,1,0,1 ; ghosts (tunnel)
+    dc.b   0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,1 ; enemies (fright)
+    dc.b   0,1,1,0,1,0,1,0,1,1,0,1,0,1,0,1 ; enemies (tunnel)
     dc.b   1,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1 ; elroy 1
     dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; elroy 2
                                            ;
 speeds_level5_20                                          
                                            ; LEVELS 5-20
     dc.b   1,1,2,1,1,1,2,1,1,1,2,1,1,1,2,1 ; pac-man (normal)
-    dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; ghosts (normal)
+    dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; enemies (normal)
     dc.b   1,1,2,1,1,1,2,1,1,1,2,1,1,1,2,1 ; pac-man (fright) (N/A for levels 17, 19 & 20)
-    dc.b   0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1 ; ghosts (fright)  (N/A for levels 17, 19 & 20)
-    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; ghosts (tunnel)
+    dc.b   0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1 ; enemies (fright)  (N/A for levels 17, 19 & 20)
+    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; enemies (tunnel)
     dc.b   1,1,2,1,1,1,2,1,1,1,2,1,1,1,2,1 ; elroy 1
     dc.b   1,1,2,1,1,2,1,1,2,1,1,2,1,1,2,1 ; elroy 2
                                            ;
 speeds_level21                                          
                                            ; LEVELS 21+
     dc.b   1,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1 ; pac-man (normal)
-    dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; ghosts (normal)
+    dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; enemies (normal)
     dc.b   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ; pac-man (fright) N/A
-    dc.b   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ; ghosts (fright)  N/A
-    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; ghosts (tunnel)
+    dc.b   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ; enemies (fright)  N/A
+    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; enemies (tunnel)
     dc.b   1,1,2,1,1,1,2,1,1,1,2,1,1,1,2,1 ; elroy 1
     dc.b   1,1,2,1,1,2,1,1,2,1,1,2,1,1,2,1; elroy 2
 
@@ -3995,10 +4022,10 @@ speeds_level21
 powerdots
     ds.l    4
 
-; palette is different for frightened ghosts & eyes
-frightened_ghosts_blue_palette
+; palette is different for frightened enemies & eyes
+frightened_enemies_blue_palette
     
-frightened_ghosts_white_palette
+frightened_enemies_white_palette
     
 
 game_palette
@@ -4008,7 +4035,7 @@ player:
     ds.b    Player_SIZEOF
     even
 
-ghosts:
+enemies:
     ds.b    Enemy_SIZEOF*7
     even
 
@@ -4064,31 +4091,30 @@ tunnel_color_reg = color+38
 colors:
    dc.w color,0     ; fix black (so debug can flash color0)
 sprites:
-ghost_sprites:
-    ; red ghost
+enemy_sprites:
+    ; #1
     dc.w    sprpt+0,0
     dc.w    sprpt+2,0
-nail_sprite
-    ; red target / nail / drape
+    ; #2
     dc.w    sprpt+4,0
     dc.w    sprpt+6,0
-score_sprite_entry:
-    ; pink ghost / score for ghost eaten
+    ; #3
     dc.w    sprpt+8,0
     dc.w    sprpt+10,0
-    ; pink target
+    ; #4
     dc.w    sprpt+12,0
     dc.w    sprpt+14,0
-    ; cyan ghost
+    ; #5
     dc.w    sprpt+16,0
     dc.w    sprpt+18,0
-    ; cyan target
+    ; #6
     dc.w    sprpt+20,0
     dc.w    sprpt+22,0
-    ; orange ghost
+    ; #7
+thief_sprite:
     dc.w    sprpt+24,0
     dc.w    sprpt+26,0
-    ; orange target
+score_sprite_entry:     ; can use since there's white in thief sprite
     dc.w    sprpt+28,0
     dc.w    sprpt+30,0
 
@@ -4204,7 +4230,7 @@ DECL_GHOST:MACRO
 \1_police_fall_end_frame_table:
 
     
-    ; all ghosts share the same graphics, only the colors are different
+    ; all enemies share the same graphics, only the colors are different
     ; but we need to replicate the graphics 8*4 times because of sprite control word
 \1_police_0
     dc.l    0
@@ -4262,6 +4288,9 @@ DECL_GHOST:MACRO
     DECL_GHOST  police2
     DECL_GHOST  police3
     DECL_GHOST  police4
+    DECL_GHOST  police5
+    DECL_GHOST  police6
+    DECL_GHOST  police7
 
 ; special sprites for intermissions
 
