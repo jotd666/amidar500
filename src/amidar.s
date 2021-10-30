@@ -1642,7 +1642,8 @@ init_dots:
     lea dot_table,a1
     move.l  #NB_TILE_LINES*NB_TILES_PER_LINE-1,d0
 .copy
-    move.b  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
     dbf d0,.copy
     rts
     
@@ -1654,10 +1655,12 @@ draw_dots:
     move.l  a2,a1
     move.w  #NB_BYTES_PER_MAZE_LINE-1,d0
 .hloop
-    tst.b  (a0)+
+    tst.l  (a0)+
     beq.b   .no_draw
     bsr draw_dot
 .no_draw
+    addq.w  #4,a0
+    
     addq.w  #1,a1
     dbf d0,.hloop
     add.w   #NB_BYTES_PER_LINE*8,a2
@@ -1960,8 +1963,6 @@ level3_interrupt:
     bne.b   .no_second
     tst.b   demo_mode
     bne.b   .no_second
-    tst.b   music_playing
-    bne.b   .no_pause
     
     eor.b   #1,pause_flag
 .no_second
@@ -2036,20 +2037,7 @@ update_all
 
     bra.b   .next_level
 
-    lea _custom+color,a0
 
-    eor.b   #1,.color_blue
-    beq.b   .chcol
-
-    move.w  maze_outline_color,(4,a0)  ; outline
-    move.w  maze_fill_color,(6,a0) ; fill
-    bra.b   .no_change
-.chcol
-    move.l  #$FFF0000,(4,a0)  ; outline+fill
-.no_change
-    rts
-.color_blue
-    dc.w    0
     
 .next_level
      move.w  #STATE_NEXT_LEVEL,current_state
@@ -2076,21 +2064,22 @@ update_all
 .no_first_tick
 
 .dec
-
+    bsr update_player
+    
     addq.w  #1,state_timer
     rts
 .ready_off
 
 
     rts
-.update_pac_and_ghosts
+.update_player_and_ghosts
 
     ; collisions are checked more often to avoid the infamous
     ; "pass through" bug. I would have loved to keep it, but it
     ; seems that it happens a lot more with my version for an unknown reason
     ; so since I'm not too short in CPU I'm performing the check twice as often
     ; as soon as either pacman or the ghosts move
-    bsr update_pac
+    
     bsr check_pac_ghosts_collisions
 
 .nobonus2
@@ -2344,8 +2333,11 @@ power_pill_taken
     move.l (a7)+,d2
     rts
     
-update_pac
-    
+update_player
+    lea     player(pc),a4
+    ; no moves
+    clr.l  h_speed(a4)  
+
     move.w  player_killed_timer(pc),d6
     bmi.b   .alive
     moveq.w #0,d0
@@ -2375,17 +2367,9 @@ update_pac
     nop
 .no_fright1
 
-
-.skip_move
-    ; return without doing nothing!!
-    rts
     
 .okmove
-    ; pre turn timer
-    tst.w  prepost_turn(a4)
-    beq.b   .ptzero
-    subq.w  #1,prepost_turn(a4)
-.ptzero
+
     move.l  joystick_state(pc),d0
     IFD    RECORD_INPUT_TABLE_SIZE
     bsr     record_input
@@ -2465,21 +2449,16 @@ update_pac
 
     move.w  direction(a4),d6
 
-    cmp.w   #UP,d6
-    bcc.b   .horiz_first
     ; priority to vertical move (direction change)
     ; if pre/post turn in progress don't try to turn
-    tst.w   prepost_turn(a4)
-    bne.b .novtest1
+
 
     bsr.b .vtest    
 .novtest1
     bsr.b .htest
     bra.b   .pills
 .horiz_first
-    ; priority to horizontal move
-    tst.w   prepost_turn(a4)
-    bne.b .nohtest1
+    ; TODO
     bsr .htest
 .nohtest1    
     bsr.b .vtest
@@ -2532,6 +2511,7 @@ update_pac
 .vtest
     ; vertical move
     ; re-set coords
+    LOGPC   100
     move.w  d2,d0
     move.w  d3,d1
     move.w  v_speed(a4),d4
@@ -2570,12 +2550,6 @@ update_pac
 .can_move_vertically
     move.w  d6,direction(a4)
         
-    cmp.w   xpos(a4),d5
-    beq.b   .ddv
-    add.w   d4,d3       ; new move y too
-    move.w  #PREPOST_TURN_LOCK,prepost_turn(a4)
-.ddv
-    
     add.w   d4,d3
 
     move.w  d5,xpos(a4)
@@ -2623,12 +2597,6 @@ update_pac
     ; set direction
     move.w  d6,direction(a4)
     
-    ; set aligned value in y (corner cut)
-    cmp.w   ypos(a4),d5
-    beq.b   .dd
-    add.w   d4,d2       ; new move x too
-    move.w  #PREPOST_TURN_LOCK,prepost_turn(a4)
-.dd
     ; handle tunnel
     add.w   d4,d2
 
@@ -2832,6 +2800,7 @@ ye  set ys+16       ; size = 16
 ; trashes: a0,a1,d1
 
 is_on_bonus:
+    bra.b   .cleared
     lea dot_table,a0
     ; apply x,y offset
     lsr.w   #3,d1       ; 8 divide
@@ -2859,9 +2828,9 @@ is_on_bonus:
 ; trashes: a0,a1,d1
 
 pacman_collides_with_maze
-    bsr collides_with_maze
-    cmp.b   #P,d0
-    bcc.b   .wall
+;    bsr collides_with_maze
+;    cmp.b   #P,d0
+;    bcc.b   .wall
     moveq.l #0,d0
     rts
 .wall
@@ -4065,7 +4034,7 @@ record_input_table:
     ENDC
     
 dot_table
-    ds.b    NB_TILES_PER_LINE*NB_TILE_LINES
+    ds.b    NB_TILES_PER_LINE*NB_TILE_LINES*8
     
     even
     

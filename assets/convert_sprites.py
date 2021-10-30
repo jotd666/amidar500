@@ -15,14 +15,26 @@ def process_maze():
     img = Image.new("RGB",(maze.size[0],maze.size[1]-24-16))
     img.paste(maze,(0,-24))
     rows = []
+    rect_id = 0
+
+    current_rect = None
     for i,x in enumerate(range(8,208,40)):
         row = []
         for j,y in enumerate(range(4,210,8)):
             # if not black then there's an horizontal segment here
             p = img.getpixel((x+4,y+3))
             if p != (0,0,0):
-                row.append(j)
+                if current_rect:
+                    # complete current rect
+                    current_rect["height"] = j-current_rect["row"]
+
+                current_rect = {"x":x,"y":y,"row":j,"id":rect_id}
+                rect_id += 1
+                row.append(current_rect)
+        current_rect["height"] = 27-current_rect["row"]
+        current_rect = None
         rows.append(row)
+
 
     last_row = [1]*26
     last_row[10:16] = [0]*6
@@ -34,8 +46,8 @@ def process_maze():
     dot_matrix.append(last_row)
 
     for i,row in enumerate(rows):
-        for y in row:
-            dr = dot_matrix[y]
+        for r in row:
+            dr = dot_matrix[r["row"]]
             for j in range(6):
                 dr[j+i*5] = 1
 
@@ -44,23 +56,31 @@ def process_maze():
         fw.write("maze_{}_vertical_table:\n".format(i))
         for row in rows:
             fw.write("\tdc.b\t")
-            fw.write(",".join(str(x) for x in row))
+            fw.write(",".join(str(x["row"]) for x in row))
             fw.write(",-1\n")
-        fw.write("\tdc.b\t-2\n")
+        fw.write("\tdc.b\t-2\n\n")
 
+        for row in rows:
+            for rect in row:
+                fw.write("rect_{}_{}:\n".format(i,rect["id"]))
+                fw.write("\tdc.w\t{} ; x\n".format(rect["x"]))
+                fw.write("\tdc.w\t{} ; y\n".format(rect["y"]))
+                fw.write("\tdc.w\t{} ; nb dots\n".format(2*(5+rect["height"])))
 
         fw.write("maze_{}_dot_table_read_only:\n".format(i))
-
         for row in dot_matrix:
-            print(row)
+            fw.write("\tdc.l\t")
+            fw.write(",".join("{0},{0}".format(x) for x in row))
+            fw.write("\n")
+
+
+        fw.write("\nmaze_{}_wall_table:\n".format(i))
+        # binary table with all walkable tiles set to 1
+        dot_matrix[-1] = [1]*26
+        for row in dot_matrix:
             fw.write("\tdc.b\t")
             fw.write(",".join(str(x) for x in row))
             fw.write("\n")
-##    fw.write("\nmaze_{}_wall_table:\n".format(i))
-##    for row in wall_matrix:
-##        fw.write("\tdc.b\t")
-##        fw.write(",".join(str(x) for x in row))
-##        fw.write("\n")
 
 ##            def torgb4(t):
 ##                return ((t[0]&0xF0)<<4)+((t[1]&0xF0))+(t[2]>>4)
