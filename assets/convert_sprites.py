@@ -14,88 +14,65 @@ def process_maze():
     # now the big time saver: detect maze walls & dots from MAME screenshots
     img = Image.new("RGB",(maze.size[0],maze.size[1]-24-16))
     img.paste(maze,(0,-24))
-    img.save("try.png")
+    rows = []
     for i,x in enumerate(range(8,208,40)):
+        row = []
         for j,y in enumerate(range(4,210,8)):
             # if not black then there's an horizontal segment here
             p = img.getpixel((x+4,y+3))
             if p != (0,0,0):
-                print(i,j)
-    if False:
-            fill_color = img.getpixel((1,y))
-            if outline_color != (0,0,0):
-                pass
+                row.append(j)
+        rows.append(row)
 
-            maze_img = Image.new("RGB",(img.size[0],img.size[1]))
+    last_row = [1]*26
+    last_row[10:16] = [0]*6
+    dot_matrix = [[0]*26 for _ in range(26)]
+    for row in dot_matrix:
+        for i in range(0,26,5):
+            row[i] = 1
 
-            # draw an image with just the maze
-            # collect dot positions
-            # add 3 rows for virtual coords (ghost targets)
-            # add 2 columns for virtual coords (tunnel, keep positive logical coords)
-            dot_matrix = [[0]*(img.size[0]//8 + 4) for _ in range(img.size[1]//8 + 3)]
-            wall_matrix = [['W' if  y < 3 else 'O']*(img.size[0]//8 + 4) for y in range(img.size[1]//8 + 3)]
+    dot_matrix.append(last_row)
 
+    for i,row in enumerate(rows):
+        for y in row:
+            dr = dot_matrix[y]
+            for j in range(6):
+                dr[j+i*5] = 1
 
-            for y in range(0,img.size[1]):
-                ygrid = y//8+3
-                dot_row = dot_matrix[ygrid]
-                maze_row = wall_matrix[ygrid]
-
-                maze_row[0] = maze_row[1] = 'W'
-                maze_row[-1] = maze_row[-2] = 'W'
-                for x in range(0,img.size[0]):
-                    xgrid = x//8 + 2
-                    p = img.getpixel((x,y))
-                    if p in (fill_color,outline_color):
-                        maze_img.putpixel((x,y),p)
-                        # note down the wall
-                        maze_row[xgrid] = 'W'
-                    elif p==dot_color:
-                        # either power dot or simple dot
-                        # check if already determined
-                        v = dot_row[xgrid]
-                        if not v:
-                            p2 = img.getpixel((x+3,y))
-                            if p==p2:
-                                # big dot
-                                dot_row[xgrid]=2
-                            else:
-                                dot_row[xgrid]=1
-            # tunnels & pen are added afterwards
-            # pen is always at the same location
-            wall_matrix[15][15:17] = ['P','P']
-            for j in range(3):
-                wall_matrix[16+j][13:19] = ["P"]*6
-            # tunnels
-            for y,w in tunnel:
-                w += 2
-                y += 3
-                wall_matrix[y][0:w] = ["T"]*w
-                wall_matrix[y][-w:] = ["T"]*w
+    i=1
+    with open("../src/maze_data.s","w")as fw:
+        fw.write("maze_{}_vertical_table:\n".format(i))
+        for row in rows:
+            fw.write("\tdc.b\t")
+            fw.write(",".join(str(x) for x in row))
+            fw.write(",-1\n")
+        fw.write("\tdc.b\t-2\n")
 
 
-            fw.write("maze_{}_dot_table_read_only:\n".format(i))
-            for row in dot_matrix:
-                fw.write("\tdc.b\t")
-                fw.write(",".join(str(x) for x in row))
-                fw.write("\n")
-            fw.write("\nmaze_{}_wall_table:\n".format(i))
-            for row in wall_matrix:
-                fw.write("\tdc.b\t")
-                fw.write(",".join(str(x) for x in row))
-                fw.write("\n")
+        fw.write("maze_{}_dot_table_read_only:\n".format(i))
 
-            def torgb4(t):
-                return ((t[0]&0xF0)<<4)+((t[1]&0xF0))+(t[2]>>4)
-            fw.write("\n\teven\nmaze_{}_misc:\n".format(i))
-            fw.write("\tdc.w\t${:x}  ; dots\n".format(torgb4(dot_color)))
-            fw.write("\tdc.w\t${:x}  ; outline\n".format(torgb4(outline_color)))
-            fw.write("\tdc.w\t${:x}  ; fill\n".format(torgb4(fill_color)))
-            fw.write("\tdc.w\t{}    ; total nb dots\n\n".format(nb_dots[i-1]))
+        for row in dot_matrix:
+            print(row)
+            fw.write("\tdc.b\t")
+            fw.write(",".join(str(x) for x in row))
+            fw.write("\n")
+##    fw.write("\nmaze_{}_wall_table:\n".format(i))
+##    for row in wall_matrix:
+##        fw.write("\tdc.b\t")
+##        fw.write(",".join(str(x) for x in row))
+##        fw.write("\n")
 
-
-            # now dump each maze with its own palette
-            maze_palette = [(0,0,0),(0,0,0),outline_color,fill_color]  # black, dot color, maze colors
+##            def torgb4(t):
+##                return ((t[0]&0xF0)<<4)+((t[1]&0xF0))+(t[2]>>4)
+##            fw.write("\n\teven\nmaze_{}_misc:\n".format(i))
+##            fw.write("\tdc.w\t${:x}  ; dots\n".format(torgb4(dot_color)))
+##            fw.write("\tdc.w\t${:x}  ; outline\n".format(torgb4(outline_color)))
+##            fw.write("\tdc.w\t${:x}  ; fill\n".format(torgb4(fill_color)))
+##            fw.write("\tdc.w\t{}    ; total nb dots\n\n".format(nb_dots[i-1]))
+##
+##
+##            # now dump each maze with its own palette
+##            maze_palette = [(0,0,0),(0,0,0),outline_color,fill_color]  # black, dot color, maze colors
 
 
 
@@ -128,7 +105,7 @@ game_palette_level_1 = """
     dc.w    $0fff   ; white
     dc.w    $0f00       ; red   (pos 12)
 
-    dc.w   $0E5D,$EED,$0
+    dc.w   $0E5D,$EED,$0E84
 """
 
 game_palette_level_1_sprites = """
@@ -230,7 +207,7 @@ def process_tiles():
                 img = Image.new("RGB",(img_x,cropped_img.size[1]))
                 img.paste(cropped_img)
                 # if 1 plane, pacman frames, save only 1 plane, else save all 4 planes
-                one_plane = len(p)==2
+                one_plane = False  #len(p)==2
                 used_palette = p if one_plane else game_palette_16
 
                 namei = "{}_{}".format(name,i) if nb_frames!=1 else name
@@ -317,4 +294,4 @@ process_maze()
 
 process_tiles()
 
-process_fonts()
+#process_fonts()

@@ -56,8 +56,6 @@ INTERRUPTS_ON_MASK = $E038
 	STRUCTURE	Player,0
 	STRUCT      BaseCharacter1,Character_SIZEOF
     UWORD   prepost_turn
-    UBYTE   still_timer
-    UBYTE   pad
     LABEL   Player_SIZEOF
     
 	STRUCTURE	Ghost,0
@@ -77,7 +75,7 @@ INTERRUPTS_ON_MASK = $E038
 	UWORD	 ypen
     UBYTE    flashing_as_white
     UBYTE    pad2
-	LABEL	 Ghost_SIZEOF
+	LABEL	 Enemy_SIZEOF
     
     ;Exec Library Base Offsets
 
@@ -97,7 +95,7 @@ Execbase  = 4
 ;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
 
 ; if set skips intro and start music, game starts almost immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -130,26 +128,25 @@ O = 0   ; empty
 
 
 NB_BYTES_PER_LINE = 40
-NB_BYTES_PER_MAZE_LINE = 28
+NB_BYTES_PER_MAZE_LINE = 26
 BOB_16X16_PLANE_SIZE = 64
+BOB_8X8_PLANE_SIZE = 16
 MAZE_PLANE_SIZE = NB_BYTES_PER_LINE*NB_LINES
+NB_LINES = 31*8
 SCREEN_PLANE_SIZE = 40*NB_LINES
 NB_PLANES   = 4
 
-TUNNEL_MASK_X = NB_BYTES_PER_MAZE_LINE*8
-TUNNEL_MASK_Y = OTHERS_YSTART_POS-27
+NB_TILES_PER_LINE = NB_BYTES_PER_MAZE_LINE
+NB_TILE_LINES = 27
+MAZE_HEIGHT = NB_TILES_PER_LINE*8
+MAZE_ADDRESS_OFFSET = 4*NB_BYTES_PER_LINE+1
 
-PEN_PLANE_OFFSET = (RED_YSTART_POS-15)*NB_BYTES_PER_LINE+(RED_XSTART_POS-X_START)/8-1
 
 ; messages from update routine to display routine
 MSG_NONE = 0
 MSG_SHOW = 1
 MSG_HIDE = 2
 
-NB_TILES_PER_LINE = 2+28+2    ; 2 fake tiles in the start & end
-NB_TILE_LINES_NO_MARGIN = 31
-NB_TILE_LINES = NB_TILE_LINES_NO_MARGIN+3    ; 3 fake tiles before the maze to simulate ghosts targets
-NB_LINES = NB_TILE_LINES_NO_MARGIN*8        ; real number of lines
 
 NB_FLASH_FRAMES = 14
 
@@ -157,24 +154,8 @@ NB_FLASH_FRAMES = 14
 PLAYER_KILL_TIMER = NB_TICKS_PER_SEC+NB_TICKS_PER_SEC/2+(NB_TICKS_PER_SEC/8)*9+NB_TICKS_PER_SEC/4+NB_TICKS_PER_SEC
 GHOST_KILL_TIMER = (NB_TICKS_PER_SEC*5)/6
 
-X_START = 16
-Y_START = 24
-; tunnel max
-X_MAX = (NB_TILES_PER_LINE-1)*8
-; tunnel min (pacman)
-; used to be 0 but now for some reason it doesn't work
-; so 4 is all right ATM
-X_MIN = 4
-RED_YSTART_POS = 92+Y_START
-RED_XSTART_POS = 112+X_START
-OTHERS_YSTART_POS = RED_YSTART_POS+24
-
-BONUS_TIMER_VALUE = NB_TICKS_PER_SEC*10     ; ORIGINAL_TICKS_PER_SEC?
-BONUS_SCORE_TIMER_VALUE = NB_TICKS_PER_SEC*2     ; ORIGINAL_TICKS_PER_SEC?
-BLINK_RATE = ORIGINAL_TICKS_PER_SEC/2 ; for powerdots
 PREPOST_TURN_LOCK = 4
 
-DOT_PLANE_OFFSET = -(X_START/8)
 
 ; direction enumerates, follows order of ghosts in the sprite sheet
 RIGHT = 0
@@ -202,7 +183,7 @@ STATE_NEXT_LEVEL = 3*4
 STATE_LIFE_LOST = 4*4
 STATE_INTRO_SCREEN = 5*4
 STATE_GAME_START_SCREEN = 6*4
-STATE_INTERMISSION_SCREEN = 7*4
+STATE_BONUS_SCREEN = 7*4
 
 ; jump table macro, used in draw and update
 DEF_STATE_CASE_TABLE:MACRO
@@ -219,7 +200,7 @@ DEF_STATE_CASE_TABLE:MACRO
     dc.l    .life_lost
     dc.l    .intro_screen
     dc.l    .game_start_screen
-    dc.l    .intermission_screen
+    dc.l    .bonus_screen
     ENDM
     
 ; write current PC value to some address
@@ -464,8 +445,9 @@ intro:
     bsr wait_bof
 
     bsr draw_maze
-    bsr draw_dots       
+    bsr draw_dots
     bsr draw_lives
+    bsr draw_stars
     move.w  #STATE_PLAYING,current_state
     move.w #INTERRUPTS_ON_MASK,intena(a5)
 .mainloop
@@ -476,7 +458,7 @@ intro:
 .game_start_screen
 .intro_screen       ; not reachable from mainloop
     bra.b   intro
-.intermission_screen
+.bonus_screen
 .playing
 .level_completed
     bra.b   .mainloop
@@ -669,20 +651,22 @@ draw_score:
     lea p1_string(pc),a0
     move.w  #232,d0
     move.w  #16,d1
-    move.w  #$FFF,d2
-    move.w  d2,d4       ; for write numbers
+    move.w  #$FF,d2
     bsr write_color_string
     lea score_string(pc),a0
+    move.w  #$FFF,d2
     move.w  #232,d0
     add.w  #8,d1
     bsr write_color_string
     
+    move.w  #$FF,d2
     lea high_score_string(pc),a0
     move.w  #232,d0
     move.w  #48,d1
     bsr write_color_string
     
     ; extra 0
+    move.w  #$FFF,d2
     lea score_string(pc),a0
     move.w  #232,d0
     add.w  #8,d1
@@ -697,7 +681,7 @@ draw_score:
     lea level_string(pc),a0
     move.w  #232,d0
     move.w  #48+24,d1
-    move.w  #$FFF,d2
+    move.w  #$FF,d2
     bsr write_color_string
 
     moveq.l #1,d2
@@ -793,9 +777,9 @@ init_enemies
     
     
 
-	move.w	#OTHERS_YSTART_POS,ypos(a0)
+	move.w	#40,ypos(a0)
     
-    add.l   #Ghost_SIZEOF,a0
+    add.l   #Enemy_SIZEOF,a0
     dbf d7,.igloop
   
 .skip_dot_init    
@@ -813,16 +797,23 @@ init_player
 
     
     lea player(pc),a0
-    move.l  #'MRSP',character_id(a0)
-    bsr     init_any_pac
+    move.l  #'COPI',character_id(a0)
+    move.w  #NB_TILES_PER_LINE*4,xpos(a0)
+	move.w	#MAZE_HEIGHT-2,ypos(a0)
+	move.w 	#LEFT,direction(a0)
+    clr.w  speed_table_index(a0)
+    move.w  #-1,h_speed(a0)
+    clr.w   v_speed(a0)
+    clr.w   prepost_turn(a0)
+    move.w  #0,frame(a0)
+
     
     move.w  #ORIGINAL_TICKS_PER_SEC,D0   
     tst.b   music_played
     bne.b   .played
     st.b    music_played
 
-    lsr.w   #1,d1
-    move.w  d1,half_first_ready_timer
+
     IFD    RECORD_INPUT_TABLE_SIZE
     ELSE
     IFND     DIRECT_GAME_START
@@ -852,18 +843,7 @@ init_player
     
     rts
     	    
-init_any_pac:
-    ; added +1 to be 100% exact vs original positionning
-	move.w  #RED_XSTART_POS+1,xpos(a0)
-	move.w	#188+Y_START,ypos(a0)
-	move.w 	#LEFT,direction(a0)
-    clr.w  speed_table_index(a0)
-    move.w  #-1,h_speed(a0)
-    clr.w   v_speed(a0)
-    clr.w   prepost_turn(a0)
-    clr.b   still_timer(a0)
-    move.w  #0,frame(a0)
-    rts
+
     
 DEBUG_X = 8     ; 232+8
 DEBUG_Y = 8
@@ -891,7 +871,7 @@ ghost_debug
     lea .orange(pc),a0
     bsr write_string
 
-    add.l   #Ghost_SIZEOF*3,a2
+    add.l   #Enemy_SIZEOF*3,a2
     bsr .debug_ghost
 
     
@@ -1059,33 +1039,13 @@ draw_enemies_normal
 .gloop
     move.w  xpos(a0),d0
     ; too on the right, don't draw sprite
-    cmp.w   #X_MAX,d0
-    bcs.b   .do_display
-    moveq.l #0,d0
-    bra.b   .ssp
+
 .do_display
-    move.w  d0,d6
-    sub.w   #X_MAX-16,d6
-    bcs.b   .no_tunnel_right
-    ; D6 = 1-15: sprite shift to the right
-    move.w  #X_MAX-16,d0    ; but fixed display position
-    bra.b   .tunnel   ; D6 is computed, skip
-.no_tunnel_right
-    ; tunnel left?
-    move.w  d0,d6
-    sub.w   #8+X_START,d6
-    bcc.b   .no_tunnel_left
-    ; tunnel left: leave X at 0
-    ; D6 = number of shift to the left, negated
-    moveq.w #8+X_START,d0
-    bra.b   .tunnel   ; D6 is computed, skip
-.no_tunnel_left
-    clr.w   d6      ; reset to 0
-.tunnel
+
     move.w  ypos(a0),d1
     ; center => top left
-    sub.w  #8+X_START,d0
-    sub.w  #4+Y_START,d1    ; not 8, because maybe table is off?
+    sub.w  #8,d0
+    sub.w  #4,d1    ; not 8, because maybe table is off?
     bsr store_sprite_pos
 .ssp
     move.w  mode(a0),d3 ; scatter/chase/fright/return base
@@ -1152,7 +1112,7 @@ draw_enemies_normal
     
 
 .next_ghost_iteration
-    add.l   #Ghost_SIZEOF,a0
+    add.l   #Enemy_SIZEOF,a0
     dbf d7,.gloop
     rts
     
@@ -1170,7 +1130,7 @@ draw_all
 .intro_screen
     bra.b   draw_intro_screen
 ; draw intro screen
-.intermission_screen
+.bonus_screen
     
     rts
     
@@ -1404,9 +1364,9 @@ draw_start_screen
     even
     
     
-DOT_FRAME_OFFSET = 60/8+(88-Y_START)*NB_BYTES_PER_LINE
+DOT_FRAME_OFFSET = 60/8+(88)*NB_BYTES_PER_LINE
 WHITE_TEXT_X = 80
-WHITE_TEXT_Y = 104-Y_START
+WHITE_TEXT_Y = 104
 GHOST_TEXT_X = WHITE_TEXT_X+16
 GHOST_TEXT_Y = WHITE_TEXT_Y+24
 
@@ -1416,7 +1376,7 @@ draw_intro_screen
 
     lea    .title(pc),a0
     move.w  #80,d0
-    move.w  #56-Y_START,d1
+    move.w  #56,d1
     move.w  #$0fb5,d2
     bsr write_color_string    
 
@@ -1490,9 +1450,38 @@ draw_last_life:
 .out
     rts
     
+draw_stars:
+    moveq   #2,d7
+.lloop
+    lea star,a0
+    lea	screen_data+NB_BYTES_PER_MAZE_LINE-4+(NB_BYTES_PER_LINE)*(MAZE_HEIGHT+16),a1
+    add.l   d7,a1
+    moveq   #3,d2
+.ploop
+    move.l  a1,a2
+    REPT    8
+    move.b  (a0)+,(a2)
+    add.w   #NB_BYTES_PER_LINE,a2
+    ENDR
+    add.w   #SCREEN_PLANE_SIZE,a1
+    dbf     d2,.ploop
+    dbf d7,.lloop
+.out
+    lea     .jump(pc),a0
+    move.w  #(NB_BYTES_PER_MAZE_LINE-9)*8,d0
+    move.w  #MAZE_HEIGHT+16,d1
+    move.w  #$0F0,d2
+    bsr     write_color_string
+    rts
+    
+.jump
+        dc.b    "JUMP",0
+        even
+        
+LIVES_OFFSET = (MAZE_HEIGHT+16)*NB_BYTES_PER_LINE+1
 draw_lives:
-    moveq.w #1,d7
-    lea	screen_data+SCREEN_PLANE_SIZE*2,a1
+    moveq.w #3,d7
+    lea	screen_data+LIVES_OFFSET,a1
 .cloop
     move.l #NB_BYTES_PER_MAZE_LINE*8,d0
     moveq.l #0,d1
@@ -1506,33 +1495,21 @@ draw_lives_no_clear:
     ext     d7
     subq.w  #2,d7
     bmi.b   .out
-    move.w #NB_BYTES_PER_MAZE_LINE*8,d3
-    moveq.l #-1,d2  ; mask
-    lea	screen_data+SCREEN_PLANE_SIZE*2,a1
-    lea lives+BOB_16X16_PLANE_SIZE*2,a0
-    move.w  d7,d6
-    
+    ext.l   d7
 .lloop
-    move.w  d3,d0
-    moveq.l #0,d1
+    lea lives,a0
+    lea	screen_data+LIVES_OFFSET,a1
+    add.l   d7,a1
+    moveq   #3,d2
+.ploop
     move.l  a1,a2
-    bsr blit_plane
-    move.l  a2,a1
-    add.w   #16,d3
+    REPT    8
+    move.b  (a0)+,(a2)
+    add.w   #NB_BYTES_PER_LINE,a2
+    ENDR
+    add.w   #SCREEN_PLANE_SIZE,a1
+    dbf     d2,.ploop
     dbf d7,.lloop
-
-    lea	screen_data+SCREEN_PLANE_SIZE*3,a1
-    lea lives+BOB_16X16_PLANE_SIZE*3,a0
-    move.w  d6,d7
-    move.w #NB_BYTES_PER_MAZE_LINE*8,d3
-.lloop2
-    move.w  d3,d0
-    moveq.l #0,d1
-    move.l  a1,a2
-    bsr blit_plane
-    move.l  a2,a1
-    add.w   #16,d3
-    dbf d7,.lloop2
 .out
     rts
     
@@ -1559,7 +1536,11 @@ draw_bonuses:
 .outb
     rts
     
-
+maze_misc
+    dc.l    level_1_maze
+    
+level_1_maze
+    dc.w    $F00,$CC9
    
 draw_maze:
     bsr wait_blit
@@ -1570,30 +1551,81 @@ draw_maze:
     move.w  (a1)+,(2,a0)  ; dots, color 1
 	move.w  (a1)+,d0
     move.w  d0,(4,a0)  ; outline
-    move.w  d0,maze_outline_color
-	move.w  (a1)+,d0
-    move.w  d0,(6,a0) ; fill
-    move.w  d0,maze_fill_color
-    move.b  (1,a1),total_number_of_dots
+    move.w  d0,(6,a0)  ; outline
+
+    ;;move.b  (1,a1),total_number_of_dots
     
-    lea screen_data,a1
+    lea screen_data+MAZE_ADDRESS_OFFSET,a1
 
-    ; copy maze data in bitplanes
-    move.l maze_bitmap_plane_1(pc),a0
-    bsr .copyplane
+    move.b #$7F,d0
+    move.b  d0,(NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
+    move.b  d0,(NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
+    move.b  d0,(NB_BYTES_PER_LINE,a1)
+    move.b  d0,(a1)+
+
+    ; draw frame
+    move.w  #NB_BYTES_PER_MAZE_LINE-3,d1
+    move.w  #-1,d0
+.hloop
+    move.b  d0,(NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
+    move.b  d0,(NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
+    move.b  d0,(NB_BYTES_PER_LINE,a1)
+    move.b  d0,(a1)+
+    dbf     d1,.hloop
     
-    lea screen_data+SCREEN_PLANE_SIZE,a1
-
-.copyplane
-    move.w  #NB_LINES-1,d0
-.copyline
-    move.w  #6,d1
-.copylong
-    move.l  (a0)+,(a1)+
-    dbf d1,.copylong
-    add.l  #12,a1
-    dbf d0,.copyline
-
+    move.b  #$F0,d0
+    move.b  d0,(NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
+    move.b  d0,(NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
+    move.b  d0,(NB_BYTES_PER_LINE,a1)
+    move.b  d0,(a1)
+    
+    ; vertical edges
+    lea screen_data+MAZE_ADDRESS_OFFSET,a1
+    move.w  #MAZE_HEIGHT-1,d1
+    move.b  #$60,d0
+.vloop
+    or.b    d0,(a1)
+    or.b    d0,(5,a1)
+    or.b    d0,(10,a1)
+    or.b    d0,(15,a1)
+    or.b    d0,(20,a1)
+    or.b    d0,(NB_BYTES_PER_MAZE_LINE-1,a1)
+    add.w  #NB_BYTES_PER_LINE,a1
+    dbf     d1,.vloop
+    
+    ; horizontal separations
+    lea maze_1_vertical_table(pc),a0
+    lea mul40_table(pc),a2
+    moveq   #0,d0
+    lea screen_data+MAZE_ADDRESS_OFFSET,a1
+.seploop
+    moveq   #0,d1
+    move.b  (a0)+,d1
+    bpl.b   .cont
+    cmp.b   #-2,d1
+    beq.b   .out
+    add.w   #5,a1
+    bra.b   .seploop
+.cont
+    moveq   #-1,d2
+    move.b  #$7F,d3
+    ; draw horizontal separation
+    lsl.w   #2,d1
+    move.w  (a2,d1.w),d1    ; times40
+    lsl.w   #2,d1           ; times4
+    or.b    d3,(A1,d1)
+    or.b    d2,(1,A1,d1)
+    or.b    d2,(2,A1,d1)
+    or.b    d2,(3,A1,d1)
+    or.b    d2,(4,A1,d1)
+    add.w   #NB_BYTES_PER_LINE,d1
+    or.b    d3,(A1,d1)
+    or.b    d2,(1,A1,d1)
+    or.b    d2,(2,A1,d1)
+    or.b    d2,(3,A1,d1)
+    or.b    d2,(4,A1,d1)
+    bra.b   .seploop
+.out
     
     lea screen_data+SCREEN_PLANE_SIZE*2,a1
     bsr clear_playfield_plane
@@ -1606,7 +1638,7 @@ draw_maze:
     
 init_dots:
     ; init dots
-    move.l dot_table_read_only(pc),a0
+    lea maze_1_dot_table_read_only(pc),a0
     lea dot_table,a1
     move.l  #NB_TILE_LINES*NB_TILES_PER_LINE-1,d0
 .copy
@@ -1615,59 +1647,31 @@ init_dots:
     rts
     
 draw_dots:
-    lea     powerdots(pc),a2
-    ; reset powerdots
-    clr.l   (a2)
-    clr.l   (4,a2)
-    clr.l   (8,a2)
-    clr.l   (12,a2)
-    ; draw pen gate
-    lea	screen_data+PEN_PLANE_OFFSET,a1
-    moveq.l #-1,d0
-    move.b  d0,(a1)
-    move.b  d0,(NB_BYTES_PER_LINE,a1)
-    move.b  d0,(1,a1)
-    move.b  d0,(NB_BYTES_PER_LINE+1,a1)
-    add.l   #SCREEN_PLANE_SIZE*3,a1
-    move.b  d0,(a1)
-    move.b  d0,(NB_BYTES_PER_LINE,a1)
-    move.b  d0,(1,a1)
-    move.b  d0,(NB_BYTES_PER_LINE+1,a1)
-
-    ; start with an offset (skip the fake 3 first rows)
-    lea dot_table+(Y_START/8)*NB_TILES_PER_LINE,a0    
-    lea	screen_data+DOT_PLANE_OFFSET,a1
-    
-    move.w  #NB_TILE_LINES-1-(Y_START/8),d0    
-.loopy
-    move.w  #NB_TILES_PER_LINE-1,d1
-.loopx
-    move.b  (a0)+,d2
-    beq.b   .next
-    cmp.b   #1,d2
-    ; draw small dot
-    bne.b   .big
+    lea screen_data+MAZE_ADDRESS_OFFSET+SCREEN_PLANE_SIZE-NB_BYTES_PER_LINE,a2
+    lea dot_table,a0
+    move.w  #NB_TILE_LINES-1,d1
+.vloop
+    move.l  a2,a1
+    move.w  #NB_BYTES_PER_MAZE_LINE-1,d0
+.hloop
+    tst.b  (a0)+
+    beq.b   .no_draw
     bsr draw_dot
-    bra.b   .next
-.big
-    bmi.b   .next
-    move.l  a1,(a2)+        ; store powerdot address
-    ;;;bsr draw_power_pill
-
-.next
-    addq.l  #1,a1
-    dbf d1,.loopx
-    add.l  #NB_BYTES_PER_LINE-NB_TILES_PER_LINE,a1
-    add.l   #NB_BYTES_PER_LINE*7,a1
-    dbf d0,.loopy
-
+.no_draw
+    addq.w  #1,a1
+    dbf d0,.hloop
+    add.w   #NB_BYTES_PER_LINE*8,a2
+    dbf d1,.vloop
     rts
+
 
     
 
 draw_dot:
-    move.b  #%0011000,(NB_BYTES_PER_LINE*3,a1)
-    move.b  #%0011000,(NB_BYTES_PER_LINE*4,a1)
+    move.b  #%01100000,(a1)
+    move.b  #%11110000,(NB_BYTES_PER_LINE,a1)
+    move.b  #%11110000,(NB_BYTES_PER_LINE*2,a1)
+    move.b  #%01100000,(NB_BYTES_PER_LINE*3,a1)
     rts
     
 ; < A1 address
@@ -2010,7 +2014,7 @@ update_all
 
 .intro_screen
     bra update_intro_screen
-.intermission_screen
+.bonus_screen
 
     ; other levels
     rts
@@ -2049,7 +2053,7 @@ update_all
     
 .next_level
      move.w  #STATE_NEXT_LEVEL,current_state
-     move.w #ORIGINAL_TICKS_PER_SEC,ready_timer
+     
      rts
      
 .game_over
@@ -2062,36 +2066,18 @@ update_all
     subq.w  #1,state_timer
     rts
 .playing
+    tst.w   state_timer
+    bne.b   .no_first_tick
     ; for demo mode
     addq.w  #1,record_input_clock
 
-    move.w   first_ready_timer(pc),d0
-    cmp.w   ready_timer(pc),d0
-    bne.b   .no_first_tick
-    move.w  #MSG_SHOW,player_one_and_life_display_message
-
-    moveq.l #0,d0   ; start!!
-    bsr play_music
+    ;moveq.l #0,d0   ; start!!
+    ;bsr play_music
 .no_first_tick
 
-
-    tst.w   ready_timer
-    bmi.b   .ready_off
-    bne.b   .dec
-    ; 0
-    move.w  #MSG_HIDE,ready_display_message
-    ; stop music
-    bsr stop_sounds
-    ; start in-game music TODO
 .dec
-    move.w  half_first_ready_timer(pc),d0
-    cmp.w   ready_timer(pc),d0
-    bne.b   .no_half
-    move.w  #MSG_HIDE,player_one_and_life_display_message
-    subq.b  #1,nb_lives     ; artificially
-.no_half
 
-    subq.w  #1,ready_timer
+    addq.w  #1,state_timer
     rts
 .ready_off
 
@@ -2138,7 +2124,7 @@ check_pac_ghosts_collisions
     cmp.w   d3,d1
     beq.b   .collision
 .nomatch
-    add.w   #Ghost_SIZEOF,a4
+    add.w   #Enemy_SIZEOF,a4
     dbf d7,.gloop
     rts
 .collision
@@ -2200,12 +2186,7 @@ update_intro_screen
     dbf d1,.dotloop
     
     bsr init_player
-    lea player(pc),a0
-    move.w  #260,xpos(a0)
-    move.w  #170,ypos(a0)
-    move.w  #LEFT,direction(a0)
-    
-    clr.w   .anim_ms_pac
+   
     
     moveq.l #0,d0
     bsr init_enemies
@@ -2215,11 +2196,11 @@ update_intro_screen
     move.w  #260,xpos(a0)
     move.w  #170,ypos(a0)
     move.w  #LEFT,direction(a0)
-    add.w  #Ghost_SIZEOF,a0
+    add.w  #Enemy_SIZEOF,a0
     dbf d0,.loop
     
     move.w  #93,.y_target
-    move.w   #4*Ghost_SIZEOF,.ghost_to_update    
+    move.w   #4*Enemy_SIZEOF,.ghost_to_update    
 .no_first
     add.w   #1,state_timer
 
@@ -2238,7 +2219,7 @@ update_intro_screen
     ; now ghosts
 
     move.w  .ghost_to_update(pc),d0
-    cmp.w   #4*Ghost_SIZEOF,d0
+    cmp.w   #4*Enemy_SIZEOF,d0
     beq.b   .no_ghost
     
     lea ghosts(pc),a0
@@ -2265,7 +2246,7 @@ update_intro_screen
     bne.b   .no_dirchange
 .next_ghost_iteration
     add.w   #1,intro_text_message       ; next ghost / mspacman
-    add.w   #Ghost_SIZEOF,.ghost_to_update
+    add.w   #Enemy_SIZEOF,.ghost_to_update
     add.w   #17,.y_target
 .no_dirchange
     
@@ -2331,7 +2312,7 @@ update_ghosts:
     addq.w  #1,d1
     and.w   #$F,d1
     move.w  d1,frame(a4)
-    add.w   #Ghost_SIZEOF,a4
+    add.w   #Enemy_SIZEOF,a4
     dbf d7,.glkill
     rts
     
@@ -2394,11 +2375,7 @@ update_pac
     nop
 .no_fright1
 
-    ; player
-    lea player(pc),a4
-    tst.b   still_timer(a4)
-    beq.b   .okmove
-    subq.b  #1,still_timer(a4)
+
 .skip_move
     ; return without doing nothing!!
     rts
@@ -2513,12 +2490,12 @@ update_pac
     move.b   d0,d2
     beq.b   .end_pac    ; nothing
 
-    lea	screen_data+DOT_PLANE_OFFSET,a1
+    lea	screen_data,a1
     move.w  xpos(a4),d0
     move.w  ypos(a4),d1
     ; are we y-aligned?
     and.w   #$1F8,d1
-    sub.w   #Y_START,d1     ; phantom 3 rows of tiles at start
+    
     ADD_XY_TO_A1    a0
 
 
@@ -2764,26 +2741,6 @@ draw_player:
     move.w  ypos(a2),d1
     ; center => top left
     moveq.l #-1,d2 ; mask
-    sub.w  #8+Y_START,d1
-    sub.w  #8+X_START,d0
-    bpl.b   .no_left
-    ; d0 is negative
-    neg.w   d0
-    lsr.l   d0,d2
-    neg.w   d0
-    add.w   #NB_BYTES_PER_LINE*8,d0
-    subq.w  #1,d1
-    bra.b   .pdraw
-.no_left
-    ; check mask to the right
-    move.w  d0,d4    
-    sub.w   #X_MAX-24-X_START,d4
-    bmi.b   .pdraw
-    lsl.l   d4,d2
-    swap    d2
-    clr.w   d2
-.pdraw
-   
 
     lea	screen_data+SCREEN_PLANE_SIZE*2,a1
     
@@ -3607,19 +3564,9 @@ prev_record_joystick_state
 
     ENDC
 
-    
-ready_timer:
-    dc.w    0
-first_ready_timer:
-    dc.w    0
-half_first_ready_timer:
-    dc.w    0
-level_blink_timer
-    dc.w    0
+  
 current_state
     dc.w    0
-power_pill_timer:
-    dc.w    BLINK_RATE
 score
     dc.l    0
 displayed_score
@@ -3651,8 +3598,7 @@ dot_table_read_only:
     dc.l    0
 maze_wall_table:
     dc.l    0
-maze_misc
-    dc.l    0
+
 maze_bitmap_plane_1
     dc.l    0
 maze_bitmap_plane_2
@@ -3894,7 +3840,7 @@ player_one_string_clear
     even
 
     MUL_TABLE   40
-    MUL_TABLE   28
+    MUL_TABLE   26
 
 square_table:
 	rept	256
@@ -4094,7 +4040,7 @@ player:
     even
 
 ghosts:
-    ds.b    Ghost_SIZEOF*7
+    ds.b    Enemy_SIZEOF*7
     even
 
     
@@ -4102,7 +4048,7 @@ ghosts:
 keyboard_table:
     ds.b    $100,0
     
-    ;;include "maze_data.s"       ; generated by "convert_sprites.py" python script
+    include "maze_data.s"       ; generated by "convert_sprites.py" python script
 
     
 ; BSS --------------------------------------
@@ -4257,6 +4203,8 @@ rustler_dead
     dc.l    empty_16x16_bob
 lives
     incbin  "life.bin"
+star
+    incbin  "star.bin"
 
 
 
