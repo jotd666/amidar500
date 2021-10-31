@@ -28,10 +28,10 @@ def process_maze():
                     # complete current rect
                     current_rect["height"] = j-current_rect["row"]
 
-                current_rect = {"x":x,"y":y,"row":j,"id":rect_id}
+                current_rect = {"x":x-8,"y":y-4,"row":j,"id":rect_id}
                 rect_id += 1
                 row.append(current_rect)
-        current_rect["height"] = 27-current_rect["row"]
+        current_rect["height"] = 26-current_rect["row"]
         current_rect = None
         rows.append(row)
 
@@ -45,6 +45,8 @@ def process_maze():
             row[i] = 1
         row[-1]=1
 
+
+    # create wall table
     dot_matrix.append(last_row)
 
     for i,row in enumerate(rows):
@@ -55,6 +57,16 @@ def process_maze():
 
     i=1
     with open("../src/maze_data.s","w")as fw:
+        fw.write("""    STRUCTURE   SRectangle,0
+    UWORD   xrect
+    UWORD   yrect
+    UWORD   hrect
+    UWORD   mdots
+    UWORD   cdots
+    UWORD   points
+    LABEL   SRectangle_SIZEOF
+
+""")
         fw.write("maze_{}_vertical_table:\n".format(i))
         for row in rows:
             fw.write("\tdc.b\t")
@@ -62,17 +74,54 @@ def process_maze():
             fw.write(",-1\n")
         fw.write("\tdc.b\t-2\n\n")
 
+        rectdict = {}
         for row in rows:
             for rect in row:
-                fw.write("rect_{}_{}:\n".format(i,rect["id"]))
+                rect["name"] = "rect_{}_{:02}".format(i,rect["id"])
+                rectdict[rect["name"]] = rect
+                fw.write("{}:\n".format(rect["name"]))
                 fw.write("\tdc.w\t{} ; x\n".format(rect["x"]))
                 fw.write("\tdc.w\t{} ; y\n".format(rect["y"]))
-                fw.write("\tdc.w\t{} ; nb dots\n".format(2*(5+rect["height"])))
+                fw.write("\tdc.w\t{} ; max nb dots\n".format(2*(5+rect["height"])))
+                fw.write("\tdc.w\t0 ; current nb dots\n")
+                fw.write("\tdc.w\t0 ; points\n")
+
+        fw.write("\nrectlist_{}:\n".format(i))
+        for rn in sorted(rectdict):
+            fw.write("\tdc.l\t{}\n".format(rn))
+        fw.write("\tdc.l\t0\n")
+
+
+        dot_rect_matrix = [[0]*2*NB_H_TILES for _ in range(27)]
+        # for each rectangle, compute coordinates and add the rectangle as a reference (or not)
+        def mark(i,j,m):
+            row = dot_rect_matrix[j]
+            twoi = 2*i
+            if row[twoi]:
+                row[twoi+1] = m["name"]
+            else:
+                row[twoi] = m["name"]
+
+        for row in rows:
+            for rect in row:
+                # horizontal
+                xstart = rect["x"]//8
+                ystart = rect["y"]//8
+                h = rect["height"]
+                for xt in range(6):
+                    mark(xt+xstart,ystart,rect)
+                    mark(xt+xstart,ystart+h,rect)
+                for yt in range(h):
+                    mark(xstart+5,ystart+yt,rect)
+                    mark(xstart,ystart+yt,rect)
 
         fw.write("maze_{}_dot_table_read_only:\n".format(i))
-        for row in dot_matrix:
+        dot_rect_matrix[-1][20:32] = [0]*12
+        for row in dot_rect_matrix:
+            if len(set(row))==1:
+                row = [row[0],0]
             fw.write("\tdc.l\t")
-            fw.write(",".join("{0},{0}".format(x) for x in row))
+            fw.write(",".join("{}".format(str(x)) for x in row))
             fw.write("\n")
 
 
@@ -177,7 +226,7 @@ def process_tiles():
 
         blit_pad = object.get("blit_pad",True)
         name = object["name"]
-        print(name)
+
         start_x = object["start_x"]+x_offset
         start_y = object["start_y"]+y_offset
         horizontal = object.get("horizontal",default_horizontal)

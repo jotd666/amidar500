@@ -2480,6 +2480,54 @@ update_player
     move.w  #1,v_speed(a4)
 .no_down    
 .out
+    bsr     .move_attempt
+    tst.w   d5
+    beq.b   .no_move
+    
+    cmp.w   #3,d5
+    beq.b   .valid_move
+    ; invalid move, try to see if latest move would work
+    move.l  previous_valid_direction(pc),d6
+    beq.b   .no_move
+    move.l  d6,h_speed(a4)
+    bsr     .move_attempt
+    cmp.w   #3,d5
+    beq.b   .valid_move
+    ; nothing to do, previous move wasn't valid
+    bra.b   .no_move
+.valid_move
+    ; store for later
+    move.l  h_speed(a4),previous_valid_direction
+    bsr animate_player    
+    move.w  d2,xpos(a4)
+    move.w  d3,ypos(a4)
+    bsr is_on_bonus
+    move.b   d0,d2
+    beq.b   .end_pac    ; nothing
+
+    lea	screen_data,a1
+    move.w  xpos(a4),d0
+    move.w  ypos(a4),d1
+
+    
+   ;; ADD_XY_TO_A1    a0
+
+
+    ;lea eat_1_sound(pc),a0
+
+.scont
+ ;   bsr play_fx
+  ;  bsr clear_dot
+.score
+    ; dot
+
+    ;bsr     add_to_score
+.end_pac
+
+.no_move
+    rts
+
+.move_attempt
     ; cache xy in regs / save them
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
@@ -2549,43 +2597,8 @@ update_player
 .left
     move.w  #LEFT,direction(a4)
 .no_horizontal
-    tst.w   d5
-    beq.b   .no_move
-    
-    cmp.w   #3,d5
-    beq.b   .valid_move
-    bra.b   .no_move
-.valid_move
-    bsr animate_player    
-    move.w  d2,xpos(a4)
-    move.w  d3,ypos(a4)
-    bsr is_on_bonus
-    move.b   d0,d2
-    beq.b   .end_pac    ; nothing
-
-    lea	screen_data,a1
-    move.w  xpos(a4),d0
-    move.w  ypos(a4),d1
-
-    
-   ;; ADD_XY_TO_A1    a0
-
-
-    ;lea eat_1_sound(pc),a0
-
-.scont
- ;   bsr play_fx
-  ;  bsr clear_dot
-.score
-    ; dot
-
-    ;bsr     add_to_score
-.end_pac
-
-.no_move
     rts
-
-.vtest:
+    
 
     
     IFD    RECORD_INPUT_TABLE_SIZE
@@ -2707,6 +2720,9 @@ draw_player:
     moveq.l #-1,d2 ; mask
 
     lea	screen_data,a1
+
+    ; apply X offset
+    addq.w #2,d0
     
     move.l  a1,a6
     move.w d3,d0
@@ -3713,13 +3729,15 @@ rustler_dir_table
 COPIER_ANIM_TABLE:MACRO
 copier_anim_\1
 
-    dc.l    copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_1,copier_\1_1,copier_\1_1
+    dc.l    copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0,copier_\1_0
+    dc.l    copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1,copier_\1_1
 copier_anim_\1_end
     ENDM
     
 RUSTLER_ANIM_TABLE:MACRO
 rustler_anim_\1
-    dc.l    rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_1,rustler_\1_1,rustler_\1_1
+    dc.l    rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0
+    dc.l    rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1
 rustler_anim_\1_end
     ENDM
     
