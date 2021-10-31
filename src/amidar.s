@@ -140,7 +140,7 @@ MAZE_HEIGHT = NB_TILES_PER_LINE*8
 MAZE_ADDRESS_OFFSET = 6*NB_BYTES_PER_LINE+1
 
 Y_MAX = MAZE_HEIGHT
-X_MAX = NB_BYTES_PER_MAZE_LINE*8
+X_MAX = (NB_BYTES_PER_MAZE_LINE-1)*8
 
 ; messages from update routine to display routine
 MSG_NONE = 0
@@ -2497,8 +2497,16 @@ update_player
     move.w  d2,d0
     move.w  d3,d1
     add.w   d6,d1  ; change y
+    bmi.b   .no_vertical
+    cmp.w   #Y_MAX+1,d1
+    bcc.b   .no_vertical
+    tst.w   d6
+    bmi.b   .up1
+    ; to the right: add 7
+    addq.w  #7,d1
+.up1
     bsr     is_location_legal
-    tst     d0
+    tst.b   d0
     beq.b   .no_vertical
     ; validate
     add.w   d6,d3  ; change y
@@ -2514,15 +2522,22 @@ update_player
     beq.b   .no_horizontal
     bset    #0,d5   ; note that we attempted a move
     ; left/right move requested
-    LOGPC   100
     move.w  d3,d1
     and.b   #7,d1
     bne.b   .no_horizontal    ; invalidated: not aligned in y
     move.w  d2,d0
     move.w  d3,d1
     add.w   d6,d0  ; change x
+    bmi.b   .no_horizontal
+    cmp.w   #X_MAX+1,d0
+    bcc.b   .no_horizontal
+    tst.w   d6
+    bmi.b   .left1
+    ; to the right: add 7
+    addq.w  #7,d0
+.left1
     bsr     is_location_legal
-    tst     d0
+    tst.b   d0
     beq.b   .no_horizontal
     ; validate
     add.w   d6,d2  ; change x
@@ -2539,7 +2554,7 @@ update_player
     
     cmp.w   #3,d5
     beq.b   .valid_move
-    
+    bra.b   .no_move
 .valid_move
     bsr animate_player    
     move.w  d2,xpos(a4)
@@ -2812,23 +2827,22 @@ is_on_bonus:
     rts
     
     
-; what: checks if x,y collides with maze 
+; what: checks if x,y collides with maze
+; returns valid location out of the maze
+; (allows to handle edges, with a limit given by
+; the move methods)
 ; args:
 ; < d0 : x (screen coords)
 ; < d1 : y
-; > d0 : 1 if collision, 0 if no collision
+; > d0.b : 1 if collision, 0 if no collision
 ; trashes: a0,a1,d1
 
 is_location_legal:
-    LOGPC   100
     cmp.w   #Y_MAX+1,d1
     bcc.b   .out_of_bounds
     cmp.w   #X_MAX+1,d0
     bcc.b   .out_of_bounds
-    tst.w   d0
-    bmi.b   .out_of_bounds
-    tst.w   d1
-    bmi.b   .out_of_bounds
+    ; no need to test sign (bmi) as bcc works unsigned so works on negative!
     ; apply x,y offset
     lsr.w   #3,d1       ; 8 divide : tile
     lea     mul26_table(pc),a0
@@ -2840,7 +2854,7 @@ is_location_legal:
     move.b  (a0,d0.w),d0    ; retrieve value
     rts
 .out_of_bounds
-    clr.b   d0
+    move.b   #1,d0  ; allowed, the move routine already has bounds
     rts
    
 

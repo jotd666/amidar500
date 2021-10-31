@@ -43,6 +43,7 @@ def process_maze():
     for row in dot_matrix:
         for i in range(0,NB_H_TILES,5):
             row[i] = 1
+        row[-1]=1
 
     dot_matrix.append(last_row)
 
