@@ -72,17 +72,24 @@ def process_maze():
             fw.write("\tdc.b\t")
             fw.write(",".join(str(x["row"]) for x in row))
             fw.write(",-1\n")
-        fw.write("\tdc.b\t-2\n\n")
+        fw.write("\tdc.b\t-2\n\teven\n\n")
 
         rectdict = {}
-        for row in rows:
-            for rect in row:
+        for ri,row in enumerate(rows):
+            for rj,rect in enumerate(row):
                 rect["name"] = "rect_{}_{:02}".format(i,rect["id"])
+                nb_dots = 2*(5+rect["height"])
+                if rj==len(row)-1:
+                    if ri==2:
+                        nb_dots -= 6    # start point
+                    elif ri==1 or ri==3:
+                        nb_dots -= 1
                 rectdict[rect["name"]] = rect
                 fw.write("{}:\n".format(rect["name"]))
                 fw.write("\tdc.w\t{} ; x\n".format(rect["x"]))
                 fw.write("\tdc.w\t{} ; y\n".format(rect["y"]))
-                fw.write("\tdc.w\t{} ; max nb dots\n".format(2*(5+rect["height"])))
+                fw.write("\tdc.w\t{} ; height\n".format(rect["height"]))
+                fw.write("\tdc.w\t{} ; max nb dots\n".format(nb_dots))
                 fw.write("\tdc.w\t0 ; current nb dots\n")
                 fw.write("\tdc.w\t0 ; points\n")
 
@@ -92,15 +99,18 @@ def process_maze():
         fw.write("\tdc.l\t0\n")
 
 
-        dot_rect_matrix = [[0]*2*NB_H_TILES for _ in range(27)]
+        dot_rect_matrix = [[0]*4*NB_H_TILES for _ in range(27)]
         # for each rectangle, compute coordinates and add the rectangle as a reference (or not)
         def mark(i,j,m):
             row = dot_rect_matrix[j]
-            twoi = 2*i
-            if row[twoi]:
-                row[twoi+1] = m["name"]
-            else:
-                row[twoi] = m["name"]
+            fouri = 4*i
+            name = m["name"]
+            for l in range(fouri,fouri+4):
+                if row[l]==name:
+                    break
+                if not row[l]:
+                    row[l] = m["name"]
+                    break
 
         for row in rows:
             for rect in row:
@@ -116,10 +126,8 @@ def process_maze():
                     mark(xstart,ystart+yt,rect)
 
         fw.write("maze_{}_dot_table_read_only:\n".format(i))
-        dot_rect_matrix[-1][20:32] = [0]*12
+        dot_rect_matrix[-1][40:64] = [0]*24
         for row in dot_rect_matrix:
-            if len(set(row))==1:
-                row = [row[0],0]
             fw.write("\tdc.l\t")
             fw.write(",".join("{}".format(str(x)) for x in row))
             fw.write("\n")

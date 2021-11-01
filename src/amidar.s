@@ -604,7 +604,16 @@ init_new_play:
     rts
     
 init_level: 
-
+    ; sets initial number of dots
+    lea rectlist_1(pc),a0
+.riloop
+    move.l  (a0)+,d0
+    beq.b   .out
+    move.l  d0,a1
+    move.w  mdots(a1),cdots(a1)
+    bra.b   .riloop
+    
+.out
     
     ; level
     move.w  level_number,d2
@@ -875,11 +884,8 @@ init_player
     move.w  #-1,player_killed_timer
     move.w  #-1,ghost_eaten_timer
     clr.w   next_ghost_iteration_score
-    clr.w   fright_timer
-    clr.b   eat_toggle
-    
-    move.w  #MSG_SHOW,ready_display_message
-    
+    clr.w   fright_timer    
+   
     rts
     	    
 
@@ -903,15 +909,6 @@ ghost_debug
     add.w  #DEBUG_X,d0
     clr.l   d2
     move.l  a2,a0
-
-    
-    move.w  #DEBUG_X,d0
-    add.w  #8,d1
-    lea .orange(pc),a0
-    bsr write_string
-
-    add.l   #Enemy_SIZEOF*3,a2
-    bsr .debug_ghost
 
     
 ;    move.w  #DEBUG_X,d0
@@ -939,18 +936,13 @@ ghost_debug
 .debug_ghost
     rts
     
-.timer
-        dc.b    "MTIM ",0
 .mode
         dc.b    "MODE ",0
 .modec
         dc.b    "MODEC ",0
 .elroy:
     dc.b    "ELROY ",0
-.pink
-    dc.b    "PINK",0
-.orange
-    dc.b    "CLYDE",0
+
 .gx
         dc.b    "GX ",0
 .gy
@@ -996,12 +988,16 @@ draw_debug
     ; ---
     move.w  #DEBUG_X,d0
     add.w  #8,d1
-    lea .dots2(pc),a0
+    lea .bottom_rect_string(pc),a0
     bsr write_string
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
     move.l  d0,d3
-
+    lea rect_1_21(pc),a0
+    move.w  cdots(a0),d2
+    move.w  #3,d3
+    bsr write_decimal_number
+    
     ;;
     move.w  #DEBUG_X,d0
     add.w  #8,d1
@@ -1010,8 +1006,6 @@ draw_debug
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
     clr.l   d2
-
-    bsr ghost_debug
 
     move.w  #DEBUG_X,d0
     add.w  #8,d1
@@ -1033,8 +1027,8 @@ draw_debug
 
 .dots
         dc.b    "DOTC1 ",0
-.dots2
-        dc.b    "DOTC2 ",0
+.bottom_rect_string
+        dc.b    "R1 21 ",0
 .bonus
         dc.b    "BT ",0
 .dottable:
@@ -1397,7 +1391,6 @@ draw_start_screen
     even
     
     
-DOT_FRAME_OFFSET = 60/8+(88)*NB_BYTES_PER_LINE
 WHITE_TEXT_X = 80
 WHITE_TEXT_Y = 104
 GHOST_TEXT_X = WHITE_TEXT_X+16
@@ -1684,6 +1677,8 @@ init_dots:
 .copy
     move.l  (a0)+,(a1)+
     move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
     dbf d0,.copy
     rts
     
@@ -1693,13 +1688,16 @@ draw_dots:
     move.w  #NB_TILE_LINES-1,d1
 .vloop
     move.l  a2,a1
+    ; the table contains 4 pointers on containing rectangles for each dot
+    ; on the board, there can be max 3 containing rectangles because rectangles
+    ; aren't aligned but 16 bytes per dot is simpler to multiply by
     move.w  #NB_BYTES_PER_MAZE_LINE-1,d0
 .hloop
     tst.l  (a0)+
     beq.b   .no_draw
     bsr draw_dot
 .no_draw
-    addq.w  #4,a0
+    add.w  #12,a0
     
     addq.w  #1,a1
     dbf d0,.hloop
@@ -1719,8 +1717,12 @@ draw_dot:
     
 ; < A1 address
 clear_dot
+    clr.b  (a1)
+    clr.b  (NB_BYTES_PER_LINE,a1)
+    clr.b  (NB_BYTES_PER_LINE*2,a1)
     clr.b  (NB_BYTES_PER_LINE*3,a1)
-    clr.b  (NB_BYTES_PER_LINE*4,a1)
+    clr.b  (NB_BYTES_PER_LINE*4,a1) ; one more
+    
     rts
     
 init_sound
@@ -2094,8 +2096,10 @@ update_all
     subq.w  #1,state_timer
     rts
 .playing
-    tst.w   state_timer
+    tst.l   state_timer
     bne.b   .no_first_tick
+    lea start_music_sound,a0
+    bsr     play_fx
     ; for demo mode
     addq.w  #1,record_input_clock
 
@@ -2107,7 +2111,7 @@ update_all
     bsr update_player
     bsr update_enemies
     
-    addq.w  #1,state_timer
+    addq.l  #1,state_timer
     rts
 .ready_off
 
@@ -2170,8 +2174,8 @@ a_ghost_was_eaten:
     move.w  #GHOST_KILL_TIMER,ghost_eaten_timer
     cmp.w   #STATE_PLAYING,current_state
     bne.b   .no_sound
-    lea     ghost_eaten_sound(pc),a0
-    bsr     play_fx
+    ;lea     ghost_eaten_sound(pc),a0
+    ;bsr     play_fx
 .no_sound
     
     move.w  next_ghost_iteration_score(pc),d0
@@ -2190,7 +2194,7 @@ a_ghost_was_eaten:
     ; exits as soon as a collision is found
     rts
 update_intro_screen
-    tst.w   state_timer
+    tst.l   state_timer
     bne.b   .no_first
     ; first update: init everything
     ; 6 moving white dots, moving on a 34x16 grid (100 dots)
@@ -2224,7 +2228,7 @@ update_intro_screen
     move.w  #93,.y_target
     move.w   #4*Enemy_SIZEOF,.ghost_to_update    
 .no_first
-    add.w   #1,state_timer
+    add.l   #1,state_timer
 
     ; decrease dot positions (animate)
     lea dot_positions(pc),a0
@@ -2284,8 +2288,8 @@ update_intro_screen
 .no_anim
     subq.w  #1,xpos(a4)
 .nomspac
-    move.w  state_timer(pc),d0
-    cmp.w   #$4E0,d0
+    move.l  state_timer(pc),d0
+    cmp.l   #$4E0,d0
     beq.b   .demo
     ; text handling
     cmp.w   #58,d0
@@ -2302,7 +2306,7 @@ update_intro_screen
     rts
 .demo
     ; change state
-    clr.w   state_timer
+    clr.l   state_timer
     move.w  #STATE_GAME_START_SCREEN,current_state
     ; in demo mode
     st.b    demo_mode
@@ -2501,28 +2505,44 @@ update_player
     bsr animate_player    
     move.w  d2,xpos(a4)
     move.w  d3,ypos(a4)
-    bsr is_on_bonus
-    move.b   d0,d2
-    beq.b   .end_pac    ; nothing
 
-    lea	screen_data,a1
-    move.w  xpos(a4),d0
-    move.w  ypos(a4),d1
+    ; check if there are dots to eat
+    move.w  d2,d0
+    move.w  d2,d6   ; save it
+    move.w  d3,d1
+    bsr  get_dot_rectangles
+    ; set registers d4-d6 with pointers on rectangles²
+    move.l  d1,d5
+    exg.l   d2,d6
+    move.l  d0,d4
+    beq.b   .z
+    ; clear dot
+    lea    eat_sound,a0
+    bsr     play_fx
+    lea	screen_data+SCREEN_PLANE_SIZE,a1
+    move.w  d2,d0
+    move.w  d3,d1
+    addq.w  #8,d0
+    addq.w  #5,d1
+
+    ADD_XY_TO_A1    a0
+    bsr clear_dot
+    
+    move.l  d4,a0
+    bsr     count_dot
+.z
+    tst.l   d5
+    beq.b   .z2
+    move.l  d5,a0
+    bsr     count_dot
+.z2
+    tst.l   d6
+    beq.b   .z3
+    move.l  d6,a0
+    bsr     count_dot
+.z3
 
     
-   ;; ADD_XY_TO_A1    a0
-
-
-    ;lea eat_1_sound(pc),a0
-
-.scont
- ;   bsr play_fx
-  ;  bsr clear_dot
-.score
-    ; dot
-
-    ;bsr     add_to_score
-.end_pac
 
 .no_move
     rts
@@ -2599,7 +2619,21 @@ update_player
 .no_horizontal
     rts
     
-
+; < A0: pointer on rectangle
+count_dot
+    move.w  cdots(a0),d0
+    beq.b   .no_dots
+    cmp.l   #rect_1_14,a0
+    bne.b   .zzz
+    LOGPC   100
+.zzz
+    subq    #1,d0
+    bne.b   .still_dots
+    blitz
+.still_dots
+    move.w  d0,cdots(a0)
+.no_dots
+    rts
     
     IFD    RECORD_INPUT_TABLE_SIZE
 record_input:
@@ -2842,6 +2876,49 @@ is_on_bonus:
     clr.b   d0
     rts
     
+; what: checks if x,y collides with dot
+; returns valid location out of the maze
+; (allows to handle edges, with a limit given by
+; the move methods)
+; 
+; args:
+; < d0 : x (screen coords)
+; < d1 : y
+; > d0,d1: pointers on linked rectangles (either can be NULL)
+; trashes: a0
+
+get_dot_rectangles:
+    cmp.w   #Y_MAX+1,d1
+    bcc.b   .out_of_bounds
+    cmp.w   #X_MAX+1,d0
+    bcc.b   .out_of_bounds
+    ; no need to test sign (bmi) as bcc works unsigned so works on negative!
+    ; apply x,y offset
+    
+    lsr.w   #3,d1       ; 8 divide : tile
+    lea     mul26_table(pc),a0
+    add.w   d1,d1
+    move.w  (a0,d1.w),d1    ; times 26
+    lsl.w   #4,d1   ; times 16 (4 32 bit longwords per slot)
+    lea dot_table,a0
+    add.w   d1,a0
+    and.b   #$F8,d0   ; align on 8 (2 32 bit longwords per slot)
+    
+    add.w   d0,a0
+    add.w   d0,a0
+    
+    move.l  (a0),D0    ; retrieve value of first pointer
+    move.l  (4,a0),D1    ; retrieve value of second pointer
+    move.l  (8,a0),D2    ; retrieve value of second pointer
+    ; now that it's been checked and returned, clear pointers
+    clr.l   (a0)+
+    clr.l   (a0)+
+    clr.l   (a0)+
+    rts
+.out_of_bounds
+    moveq.l   #0,d0
+    moveq.l   #0,d1
+    rts
     
 ; what: checks if x,y collides with maze
 ; returns valid location out of the maze
@@ -3558,7 +3635,7 @@ high_score
 
 ; general purpose timer for non-game states (intro, game over...)
 state_timer:
-    dc.w    0
+    dc.l    0
 intro_text_message:
     dc.w    0
 last_ghost_eaten_state_timer
@@ -3646,19 +3723,14 @@ extra_life_awarded
     dc.b    0
 music_played
     dc.b    0
-eat_toggle
-    dc.b    0
+
 
     even
 
     
 bonus_score_display_message:
     dc.w    0
-ready_display_message:
-    dc.w    0
 extra_life_message:
-    dc.w    0
-player_one_and_life_display_message
     dc.w    0
     
 score_table
@@ -3949,12 +4021,13 @@ SOUND_ENTRY:MACRO
     ENDM
     
     ; radix, ,channel (0-3)
+    SOUND_ENTRY start_music,1,SOUNDFREQ
+    SOUND_ENTRY enemy_hit,1,SOUNDFREQ
+    SOUND_ENTRY enemy_killed,2,SOUNDFREQ
     SOUND_ENTRY killed,1,SOUNDFREQ
     SOUND_ENTRY credit,1,SOUNDFREQ
-    SOUND_ENTRY extra_life,1,SOUNDFREQ
-    SOUND_ENTRY ghost_eaten,2,SOUNDFREQ
-    SOUND_ENTRY eat_1,3,SOUNDFREQ
-    SOUND_ENTRY eat_2,3,SOUNDFREQ
+    SOUND_ENTRY eat,3,SOUNDFREQ
+
 
 
 
@@ -4053,7 +4126,7 @@ record_input_table:
 grid_backup_plane
     ds.b    SCREEN_PLANE_SIZE
 dot_table
-    ds.b    NB_TILES_PER_LINE*NB_TILE_LINES*8
+    ds.b    NB_TILES_PER_LINE*NB_TILE_LINES*16
     
     even
     
@@ -4316,24 +4389,28 @@ credit_raw
     even
 credit_raw_end
 
-ghost_eaten_raw
-    incbin  "ghost_eaten.raw"
-    even
-ghost_eaten_raw_end
 
 
-extra_life_raw
-    incbin  "extra_life.raw"
+
+start_music_raw
+    incbin  "start_music.raw"
     even
-extra_life_raw_end
-eat_1_raw
-    incbin  "eat_1.raw"
+start_music_raw_end
+enemy_hit_raw
+    incbin  "enemy_hit.raw"
     even
-eat_1_raw_end
-eat_2_raw
-    incbin  "eat_2.raw"
+enemy_hit_raw_end
+enemy_killed_raw
+    incbin  "enemy_killed.raw"
     even
-eat_2_raw_end
+enemy_killed_raw_end
+
+eat_raw
+    incbin  "eat.raw"
+    even
+eat_raw_end
+
+    even
 
   
 music:
