@@ -4,9 +4,9 @@ from PIL import Image
 sprites_dir = "sprites"
 
 #for level 2 (paint)
-square_scores = [500,350,300,250,280,150,100,450,400,450,280,230,200,300,
+square_scores = [x//10 for x in [500,350,300,250,280,150,100,450,400,450,280,230,200,300,
 700,450,280,230,200,150,100,450,400,330,250,280,230,150,300,
-500,300,330,250,230,180,150,100]
+500,300,330,250,230,180,150,100]]
 
 def process_maze():
     maze = Image.open("level1.png")
@@ -171,13 +171,13 @@ game_palette_level_1 = """
 	dc.w	$0000     ; black
     dc.w    $E00      ; red maze
     dc.w    $CC9      ; beige (dots)
-    dc.w    $CC9      ; beige (dots)
+    dc.w    $CC9      ; beige (dots+maze)
 
 	dc.w	$0ff0    ; yellow (pos 4)
-    dc.w    $00f0   ; green2
+    dc.w    $000f   ; blue
     dc.w    $00ff       ; cyan
     dc.w    $0c0f       ; magenta1
-    dc.w    $00e0   ; green1    (pos 8)
+    dc.w    $00f0   ; green1    (pos 8)
 
     dc.w    $0f7f       ; magenta2
     dc.w    $0f91       ; brown
@@ -189,9 +189,9 @@ game_palette_level_1 = """
 
 game_palette_level_1_sprites = """
     ; sprites
-    dc.w    $000,$0E0,$F91,$FF0     ; guard
-    dc.w    $000,$0E0,$F91,$FF0     ; guard
-    dc.w    $000,$0E0,$F91,$FF0     ; guard
+    dc.w    $000,$0F0,$F91,$FF0     ; guard
+    dc.w    $000,$0F0,$F91,$FF0     ; guard
+    dc.w    $000,$0F0,$F91,$FF0     ; guard
     dc.w    $000,$00ff,$0fff,$0f00  ; master guard
 
 """
@@ -291,6 +291,7 @@ def process_tiles():
 
                 namei = "{}_{}".format(name,i) if nb_frames!=1 else name
 
+                print(name)
                 bitplanelib.palette_image2raw(img,"../{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,
                 palette_precision_mask=0xF0,generate_mask=generate_mask)
 

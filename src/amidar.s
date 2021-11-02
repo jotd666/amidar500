@@ -1572,17 +1572,30 @@ draw_maze:
     bsr wait_blit
     
     ; set colors
+    ; the trick with dots is to leave them one plane 1 alone
+    ; when the bits intersect with maze lines, we get the same color
+    ; because the color entry is duplicated
+    ;
+    ; this allows to blit main character on planes 0, 2, 3 without any interaction
+    ; (except very marginal visual color change) on plane 1
     lea _custom+color,a0
     move.l  maze_misc(pc),a1
     move.w  (a1)+,(2,a0)  ; dots, color 1
 	move.w  (a1)+,d0
-    move.w  d0,(4,a0)  ; outline
-    move.w  d0,(6,a0)  ; outline
+    move.w  d0,(4,a0)  ; dots 
+    move.w  d0,(6,a0)  ; dots+outline
 
     ;;move.b  (1,a1),total_number_of_dots
     
+    lea screen_data,a1
+    bsr clear_playfield_plane
+    add.w   #SCREEN_PLANE_SIZE*2,a1
+    bsr clear_playfield_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bsr clear_playfield_plane
+    
     lea screen_data+MAZE_ADDRESS_OFFSET,a1
-
+    
     move.b #$7F,d0
     move.b  d0,(NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
     move.b  d0,(NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
@@ -1659,11 +1672,15 @@ draw_maze:
 .bup
     move.l  (a0)+,(a1)+
     dbf d0,.bup
+    ; clear this plane at start, there's nothing drawn yet
+    ; (when game is running, this holds the second plane of the filled
+    ; rectangles)
+    lea rect_backup_plane,a1
+    move.l  #SCREEN_PLANE_SIZE/4-1,d0
+.bup2
+    clr.l  (a1)+
+    dbf d0,.bup2
     
-    lea screen_data+SCREEN_PLANE_SIZE*2,a1
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_playfield_plane
     rts    
 
 
@@ -2519,6 +2536,9 @@ update_player
     ; clear dot
     lea    eat_sound,a0
     bsr     play_fx
+    ; add 10 to the score
+    moveq.l #1,d0
+    bsr add_to_score
     lea	screen_data+SCREEN_PLANE_SIZE,a1
     move.w  d2,d0
     move.w  d3,d1
@@ -2618,18 +2638,63 @@ update_player
     move.w  #LEFT,direction(a4)
 .no_horizontal
     rts
-    
+
+DRAW_RECT_LINE:MACRO
+    move.b  #$1F,(\2,\1)
+    move.b  #$FF,(\2+1,\1)
+    move.b  #$FF,(\2+2,\1)
+    move.b  #$FF,(\2+3,\1)
+    move.b  #$FE,(\2+4,\1)
+    ENDM
+DRAW_RECT_LINE_OR:MACRO
+    or.b  #$1F,(\2,\1)
+    or.b  #$FF,(\2+1,\1)
+    or.b  #$FF,(\2+2,\1)
+    or.b  #$FF,(\2+3,\1)
+    or.b  #$FE,(\2+4,\1)
+    ENDM
+; what: count dots and draws the rectangle if 0 dots
+; (dirty: draws during compute phase)
 ; < A0: pointer on rectangle
+; destroys: D0
 count_dot
     move.w  cdots(a0),d0
     beq.b   .no_dots
-    cmp.l   #rect_1_14,a0
-    bne.b   .zzz
-    LOGPC   100
-.zzz
     subq    #1,d0
     bne.b   .still_dots
-    blitz
+    ; fill rectangle with color (plane 1)
+    movem.l d1-d2/a0-a3,-(a7)
+    ; plane inc.8,8 offset
+    lea screen_data+1+(8*NB_BYTES_PER_LINE),a1
+    move.w  hrect(a0),d2
+    lsl.w   #3,d2
+    subq.w  #3,d2   ; not that wide
+    move.w  xrect(a0),d0
+    move.w  yrect(a0),d1
+    ADD_XY_TO_A1       a0
+    move.l  a1,d0
+    sub.l   #screen_data,d0 ; offset
+    lea grid_backup_plane,a2
+    lea rect_backup_plane,a3
+    add.l   d0,a2
+    add.l   d0,a3
+    move.w  #NB_BYTES_PER_LINE,d1
+.filly
+    DRAW_RECT_LINE_OR  a1,0
+    DRAW_RECT_LINE  a2,0
+    DRAW_RECT_LINE  a3,0
+    DRAW_RECT_LINE  a1,SCREEN_PLANE_SIZE*2
+    add.w   d1,a1
+    add.w   d1,a2
+    add.w   d1,a3
+    dbf d2,.filly
+    
+    movem.l (a7)+,d1-d2/a0-a3
+    moveq.l   #0,d0
+    move.w  points(a0),d0
+    beq.b   .still_dots
+    bsr add_to_score        ; even levels: bonus awarded on rectfill
+    clr d0
 .still_dots
     move.w  d0,cdots(a0)
 .no_dots
@@ -2715,29 +2780,23 @@ draw_player:
     bra.b   .pacblit
 
 .normal
-    ; first, remove plane 2
+    ; first, restore plane 0
     tst.l   d5    
     beq.b   .no_erase
     ; restore plane 0 using CPU
     lea grid_backup_plane,a0    
     lea screen_data,a1
-    move.l  d5,d0
-    sub.l   a1,d0
+    sub.l   a1,d5       ; d5 is now the offset
     ; d0 is the offset: add it
-    add.l   d0,a1
-    add.l   d0,a0
+    add.l   d5,a1
+    add.l   d5,a0
     ; now copy a rectangle of the saved screen
     REPT    18
     move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a0),((REPTN-1)*NB_BYTES_PER_LINE,a1)
     ENDR
 
-    ; erase first plane
-    move.l  d5,a1
-    add.w   #SCREEN_PLANE_SIZE*2,a1
-    REPT    18
-    clr.l   ((REPTN-1)*NB_BYTES_PER_LINE,a1)
-    ENDR
 .no_erase
+
     move.w  direction(a2),d0
     lea  copier_dir_table(pc),a0
     move.l  (a0,d0.w),a0
@@ -2768,26 +2827,33 @@ draw_player:
     bsr blit_plane_cookie_cut
     move.l  a1,previous_player_address
     
-    lea	screen_data+SCREEN_PLANE_SIZE*2,a1
+    ; remove previous second plane before blitting the new one
+    ; nice as it works in parallel with the first plane blit started above
+    tst.l   d5    
+    beq.b   .no_erase2
     
+    ; restore plane 2
+    lea   screen_data+SCREEN_PLANE_SIZE*2,a1
+    lea rect_backup_plane,a4    
+    add.l   d5,a4
+    add.l   d5,a1
+    ; now copy a rectangle of the saved screen
+    LOGPC   100
+    REPT    18
+    move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a4),((REPTN-1)*NB_BYTES_PER_LINE,a1)
+    ENDR
+
+.no_erase2    
+    lea	screen_data+SCREEN_PLANE_SIZE*2,a1
+    move.l  a1,a2   ; just restored background
     ; plane 2
+    ; a3 is already computed from first cookie cut blit
     lea (BOB_16X16_PLANE_SIZE*2,a0),a0
     move.l  a1,a6
     move.w d3,d0
     move.w d4,d1
 
-    bsr blit_plane    
-    
-    ; remove previous second plane before blitting the new one
-    ; nice as it works in parallel with the first plane blit started above
-    tst.l   d5    
-    beq.b   .no_erase2
-    move.l  d5,a1
-    add.w   #SCREEN_PLANE_SIZE*3,a1
-    REPT    18
-    clr.l   ((REPTN-1)*NB_BYTES_PER_LINE,a1)
-    ENDR
-.no_erase2    
+    bsr blit_plane_cookie_cut
     
     move.w d3,d0
     move.w d4,d1
@@ -4124,6 +4190,8 @@ record_input_table:
     ENDC
     
 grid_backup_plane
+    ds.b    SCREEN_PLANE_SIZE
+rect_backup_plane
     ds.b    SCREEN_PLANE_SIZE
 dot_table
     ds.b    NB_TILES_PER_LINE*NB_TILE_LINES*16
