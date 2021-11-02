@@ -64,7 +64,6 @@ INTERRUPTS_ON_MASK = $E038
     APTR     frame_table
     APTR     frightened_ghost_white_frame_table
     APTR     frightened_ghost_blue_frame_table
-    APTR     target_frame
     APTR     copperlist_address
     APTR     color_register
     UWORD    mode_timer     ; number of 1/50th to stay in the current mode
@@ -106,9 +105,13 @@ EXTRA_LIFE_SCORE = 10000/10
 
 START_LEVEL = 1
 
-MODE_NORMAL = 1
-MODE_FRIGHT = 2
-MODE_HANGING = 3
+MODE_NORMAL = 0     ; police/cattle only. normal amidar movement
+MODE_WANDER = 1<<2     ; thief only. thief ventures in the maze
+MODE_BORDER_PATROL = 2<<2 ; thief only. thief moves along maze borders
+MODE_CHASE = 3<<2      ; thief only. thief chases player
+MODE_FRIGHT = 4<<2     ; enemies are killable
+MODE_HANG = 5<<2       ; enemies hang on the maze
+MODE_FALL = 6<<2       ; enemies fall down
 
 ; --------------- end debug/adjustable variables
 
@@ -116,13 +119,6 @@ MODE_HANGING = 3
 NB_TICKS_PER_SEC = 50
 ; game logic ticks
 ORIGINAL_TICKS_PER_SEC = 60
-
-; wall tile types
-W = 4   ; wall
-P = 3   ; pen space (pac block)
-T = 2   ; tunnel
-B = 1   ; ghost up block
-O = 0   ; empty
 
 
 NB_BYTES_PER_LINE = 40
@@ -789,8 +785,9 @@ init_enemies
 
     clr.w   speed_table_index(a0)
 .no_reset    
-    clr.w   h_speed(a0)
-    clr.w   v_speed(a0)
+    ; all police try to go down/right
+    move.w  #1,h_speed(a0)
+    move.w  #1,v_speed(a0)
 
     clr.b   flashing_as_white(a0)
     
@@ -798,6 +795,7 @@ init_enemies
 	move.w	d0,xpos(a0)
     add.w   #40,d0
     move.w  #DOWN,direction(a0)
+    move.w  #MODE_NORMAL,mode(a0)
     
     add.w   #Enemy_SIZEOF,a0
     dbf d7,.igloop
@@ -810,11 +808,14 @@ init_enemies
     move.l (a3)+,palette+4(a0)
     move.l  a4,color_register(a0)
     move.w  #UP,direction(a0)
+    move.w  #MODE_BORDER_PATROL,mode(a0)
+    clr.w   h_speed(a0)     ; moving up at start
+    move.w  #-1,v_speed(a0)     ; moving up at start
     ; set/reset palette
     ;;bsr set_normal_ghost_palette
     move.l  #thief_sprite,copperlist_address(a0)
-	move.w	#MAZE_HEIGHT,ypos(a0)
-	move.w	#NB_BYTES_PER_MAZE_LINE*8-6,xpos(a0)
+	move.w	#Y_MAX,ypos(a0)
+	move.w	#X_MAX,xpos(a0)
 
 
     ; specific settings
@@ -938,8 +939,7 @@ ghost_debug
     
 .mode
         dc.b    "MODE ",0
-.modec
-        dc.b    "MODEC ",0
+
 .elroy:
     dc.b    "ELROY ",0
 
@@ -2175,9 +2175,11 @@ check_pac_enemies_collisions
     move.w  mode(a4),d0
     cmp.w   #MODE_FRIGHT,d0
     beq.b   .pac_eats_ghost
-    cmp.w   #MODE_HANGING,d0
+    cmp.w   #MODE_HANG,d0
     beq.b   .nomatch        ; ignore eyes
-    ; pacman is killed
+    cmp.w   #MODE_FALL,d0
+    beq.b   .nomatch        ; ignore eyes
+    ; player is killed
     tst.b   invincible_cheat_flag
     bne.b   .nomatch    
     move.w  #PLAYER_KILL_TIMER,player_killed_timer
@@ -2186,7 +2188,7 @@ check_pac_enemies_collisions
     
 .pac_eats_ghost:
 a_ghost_was_eaten:
-    move.w  #MODE_HANGING,mode(a4)
+    move.w  #MODE_HANG,mode(a4)
     ; test display score with the proper color (reusing pink sprite palette)
     move.w  #GHOST_KILL_TIMER,ghost_eaten_timer
     cmp.w   #STATE_PLAYING,current_state
@@ -2351,10 +2353,19 @@ update_enemies:
     move.w  #STATE_LIFE_LOST,current_state
     rts
 .glkill
-    bra .animate
+    bsr .animate
+    add.w   #Enemy_SIZEOF,a4
+    dbf d7,.glkill
+    rts
     
 .gloop
-    bra .animate
+    bsr .animate
+    move.w  mode(a4),d0
+    lea     enemy_move_table(pc),a0
+    move.l  (a0,d0.w),a0
+    jsr (a0)
+    add.w   #Enemy_SIZEOF,a4
+    ;;dbf d7,.gloop
     rts
 
 .animate
@@ -2363,8 +2374,69 @@ update_enemies:
     addq.w  #1,d1
     and.w   #$F,d1
     move.w  d1,frame(a4)
-    add.w   #Enemy_SIZEOF,a4
-    dbf d7,.animate
+    
+    rts
+enemy_move_table
+    dc.l    move_normal
+    dc.l    move_wander
+    dc.l    move_border_patrol
+    dc.l    move_chase
+    dc.l    move_fright
+    dc.l    move_hang
+    dc.l    move_fall
+
+move_normal
+    rts
+move_wander
+    rts
+    
+move_border_patrol    
+.retry
+    move.w  xpos(a4),d2
+    move.w  ypos(a4),d3
+    move.w   h_speed(a4),d4
+    move.w   v_speed(a4),d5
+    move.w  d2,d0
+    move.w  d3,d1
+    add.w   d4,d0
+    bmi.b   .change
+    cmp.w   #X_MAX+1,d0
+    beq.b   .change
+    add.w   d5,d1
+    bmi.b   .change
+    cmp.w   #Y_MAX+1,d1
+    beq.b   .change
+    
+    add.w   d4,xpos(a4)
+    add.w   d5,ypos(a4)
+    
+    ; TODO: change mode after a while because of mode timer
+    rts
+.change
+    tst.w   d4
+    bmi.b   .down
+    bne.b   .up
+    ; horizontal
+    tst.w   d5
+    bpl.b   .right
+    ; left
+    move.l  #$FFFF0000,h_speed(a4)   ; change to left
+    bra.b   .retry
+.right
+    move.l  #$00010000,h_speed(a4)   ; change to right
+    bra.b   .retry
+
+.down
+    move.l  #1,h_speed(a4)   ; change to down
+    bra.b   .retry
+.up
+    move.l  #$0000FFFF,h_speed(a4)   ; change to up
+    bra.b   .retry
+    
+move_chase    
+move_fright
+move_hang    
+move_fall  
     rts
     
 play_loop_fx

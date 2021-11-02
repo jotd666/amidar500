@@ -16,7 +16,7 @@ FEATURES:
 - original visual & sounds
 - original ghost behaviour & speed
 - 50 frames per second (PAL) even on a 68000 A500
-- all levels & bonuses & intermission sequences
+- all levels & bonuses
 - original intro
 - joystick controlled (port 1) or keyboard controls (arrows + space)
 - can run directly from shell or from whdload (fast machines/complex configurations)
@@ -28,9 +28,11 @@ CONTROLS:
 - P/second button: pause
 - F10 (or quitkey): quit
 
-MINOR ISSUES:
+ISSUES:
 
-  
+- no character restore on the upper left corner (plane offset/sign issue?)
+- turn correction not perfect, sometimes character blocks
+-   
 CREDITS:
 
 - jotd: code and gfx/sfx conversion
@@ -38,7 +40,7 @@ CREDITS:
 - meynaf: random routine
 - eab forum: useful advice & support
 - Rob Northen: unpacker (http://aminet.net/util/pack/RNC_ProPack.lha)
-- xx: sprite rips https://www.spriters-resource.com/arcade/mspacman/
+- Superjustinbros: sprite rips https://www.spriters-resource.com/arcade/amidar
 - konami: original game :)
 
 BUILDING FROM SOURCES:
@@ -50,11 +52,10 @@ Prerequesites:
 - Amiga NDK
 - sox (included)
 - vasm 68k (included)
-- rnc (Rob Nothen cruncher unofficial port, included)
 
 * besides the .bin files created from png by python, the rest of the process could be built on an amiga with phxass
  or some other assembler and sox for the amiga, but you have to be really mad to attempt it in 2021...)
-* could be done on Linux, just rebuild the rnc cruncher & vasm
+* could be done on Linux, just rebuild vasm
 
 Build process:
 
