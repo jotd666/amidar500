@@ -2507,7 +2507,15 @@ update_player
     
     cmp.w   #3,d5
     beq.b   .valid_move
-    ; invalid move, try to see if latest move would work
+    ; invalid move
+    ; first pass: check if there's an intersection nearby past the player
+    ; for that we have to check against every facing direction
+    move.w  direction(a4),d6
+    lea     dircheck_table(pc),a0
+    move.l  (a0,d6.w),a0
+    jsr     (a0)
+    
+    ; second pass just try to see if latest move would work ("corner cut")
     move.l  previous_valid_direction(pc),d6
     beq.b   .no_move
     move.l  d6,h_speed(a4)
@@ -2567,6 +2575,8 @@ update_player
 .no_move
     rts
 
+
+    
 .move_attempt
     ; cache xy in regs / save them
     move.w  xpos(a4),d2
@@ -2639,6 +2649,96 @@ update_player
 .no_horizontal
     rts
 
+dircheck_table
+    dc.l    dircheck_right
+    dc.l    dircheck_left
+    dc.l    dircheck_up
+    dc.l    dircheck_down
+
+DIRCHECK_HORIZ:MACRO
+    move.w  v_speed(a4),d4
+    beq.b   .no_up
+    move.w  d2,d0
+    move.w  d3,d1
+    ; align on next x tile
+    add.w   #\1,d0
+    and.w   #$F8,d0
+    
+    cmp.w   #1,d4
+    bne.b   .no_down
+    addq.w  #8,d1
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b   .go_right
+    rts
+.no_down
+    ; has to be "up"
+    ; up attempt
+    subq.w  #8,d1
+    bsr     is_location_legal
+    tst.b   d0
+    beq.b   .no_up
+.go_right
+    ; looks like player went past the "up" intersection: change direction
+    neg.w  previous_valid_direction
+.no_up
+    rts
+    ENDM
+
+DIRCHECK_VERT:MACRO
+    move.w  h_speed(a4),d4
+    beq.b   .no_left
+    move.w  d2,d0
+    move.w  d3,d1
+    ; align on next y tile
+    add.w   #\1,d1
+    and.w   #$F8,d1
+    
+    cmp.w   #1,d4
+    bne.b   .no_right
+    addq.w  #8,d0
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b   .reverse
+    rts
+.no_right
+    ; has to be "left"
+    ; left attempt
+    subq.w  #8,d0
+    bsr     is_location_legal
+    tst.b   d0
+    beq.b   .no_left
+.reverse
+    ; looks like player went past the horizontal intersection: change direction
+    neg.w  previous_valid_direction+2
+.no_left
+    rts
+    ENDM
+
+
+; d2 contains X
+; d3 contains Y
+; we use d4
+; those routines switch signs on previous_valid_direction if
+; game senses that the player has missed a turn
+; which complements the "continue" move when a turn is anticipated
+;
+; both mechanisms ensure that the player never misses a turn, which can
+; be fatal in that kind of game
+;
+; this is still not right
+dircheck_right
+    DIRCHECK_HORIZ  -7
+
+dircheck_left
+    DIRCHECK_HORIZ  7
+
+dircheck_up
+    DIRCHECK_VERT  7
+ 
+dircheck_down
+    DIRCHECK_VERT   -7
+    
 DRAW_RECT_LINE:MACRO
     move.b  #$1F,(\2,\1)
     move.b  #$FF,(\2+1,\1)
@@ -2648,9 +2748,9 @@ DRAW_RECT_LINE:MACRO
     ENDM
 DRAW_RECT_LINE_OR:MACRO
     or.b  #$1F,(\2,\1)
-    or.b  #$FF,(\2+1,\1)
-    or.b  #$FF,(\2+2,\1)
-    or.b  #$FF,(\2+3,\1)
+    move.b  #$FF,(\2+1,\1)
+    move.b  #$FF,(\2+2,\1)
+    move.b  #$FF,(\2+3,\1)
     or.b  #$FE,(\2+4,\1)
     ENDM
 ; what: count dots and draws the rectangle if 0 dots
@@ -2681,9 +2781,9 @@ count_dot
     move.w  #NB_BYTES_PER_LINE,d1
 .filly
     DRAW_RECT_LINE_OR  a1,0
-    DRAW_RECT_LINE  a2,0
+    DRAW_RECT_LINE_OR  a2,0
     DRAW_RECT_LINE  a3,0
-    DRAW_RECT_LINE  a1,SCREEN_PLANE_SIZE*2
+    DRAW_RECT_LINE_OR  a1,SCREEN_PLANE_SIZE*2
     add.w   d1,a1
     add.w   d1,a2
     add.w   d1,a3
@@ -2838,7 +2938,6 @@ draw_player:
     add.l   d5,a4
     add.l   d5,a1
     ; now copy a rectangle of the saved screen
-    LOGPC   100
     REPT    18
     move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a4),((REPTN-1)*NB_BYTES_PER_LINE,a1)
     ENDR
@@ -2854,6 +2953,20 @@ draw_player:
     move.w d4,d1
 
     bsr blit_plane_cookie_cut
+    
+    ; delete third plane too
+    tst.l   d5    
+    beq.b   .no_erase3
+    
+    ; clear plane 3
+    lea   screen_data+SCREEN_PLANE_SIZE*3,a1
+    add.l   d5,a1
+    ; now copy a rectangle of the saved screen
+    REPT    18
+    clr.l   ((REPTN-1)*NB_BYTES_PER_LINE,a1)
+    ENDR
+
+.no_erase3
     
     move.w d3,d0
     move.w d4,d1
