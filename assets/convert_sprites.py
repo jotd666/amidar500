@@ -64,6 +64,7 @@ def process_maze():
     UWORD   mdots
     UWORD   cdots
     UWORD   points
+    UWORD   specrect
     LABEL   SRectangle_SIZEOF
 
 """)
@@ -79,6 +80,9 @@ def process_maze():
             for rj,rect in enumerate(row):
                 rect["name"] = "rect_{}_{:02}".format(i,rect["id"])
                 nb_dots = 2*(5+rect["height"])
+
+                special_rectangle = (ri == 0 or ri == 4) and (rj == 0 or rj == len(row)-1)
+
                 if rj==len(row)-1:
                     if ri==2:
                         nb_dots -= 6    # start point
@@ -92,6 +96,7 @@ def process_maze():
                 fw.write("\tdc.w\t{} ; max nb dots\n".format(nb_dots))
                 fw.write("\tdc.w\t0 ; current nb dots\n")
                 fw.write("\tdc.w\t0 ; points\n")
+                fw.write("\tdc.w\t{} ; special rectangle\n".format(int(special_rectangle)))
 
         fw.write("\nrectlist_{}:\n".format(i))
         for rn in sorted(rectdict):

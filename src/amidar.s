@@ -624,7 +624,8 @@ init_level:
     clr.b  nb_dots_eaten
     clr.b   elroy_mode_lock
     
-    
+
+    move.b   #4,nb_special_rectangles
     ; speed table
     lea speed_table(pc),a1
     add.w   d2,d2
@@ -640,13 +641,13 @@ clear_scores
     lea	screen_data+SCREEN_PLANE_SIZE*1,a1
     move.w  #232,d0
     move.w  #16,d1
-    move.w  #9,d2
+    move.w  #8,d2
     move.w  #4,d3
 .loop
     lea	screen_data+SCREEN_PLANE_SIZE*1,a1
-    bsr clear_plane_any
+    bsr clear_plane_any_blitter
     add.w	#SCREEN_PLANE_SIZE,a1
-    bsr clear_plane_any
+    bsr clear_plane_any_cpu
     add.w   #16,d1
     dbf d3,.loop
     rts
@@ -1083,9 +1084,10 @@ draw_enemies_normal
 
 .draw_enemy
     move.w  xpos(a0),d0
-    ; too on the right, don't draw sprite
+    addq.w  #2,d0       ; compensate
 .do_display
     move.w  ypos(a0),d1
+    addq.w  #3,d1   ; compensate
     ; center => top left
     bsr store_sprite_pos
 .ssp
@@ -1187,6 +1189,8 @@ PLAYER_ONE_Y = 102-14
 
     bsr draw_player
     bsr draw_enemies
+   
+    
 .after_draw
         
     ; timer not running, animate
@@ -1426,28 +1430,32 @@ draw_intro_screen
     
 
 
-
-; what: clears a plane of any width (ATM not using blitter), 16 height
+; what: clears a plane of any width (not using blitter, no shifting, start is multiple of 8), 16 height
 ; args:
-; < A1: dest
+; < A1: dest (must be even)
 ; < D0: X (multiple of 8)
 ; < D1: Y
-; < D2: blit width in bytes (+2)
+; < D2: blit width in bytes (even, 2 must be added same interface as blitter)
 ; trashes: none
 
-clear_plane_any
-    movem.l d0-D2/a0-a2,-(a7)
-    lsr.w   #3,d0
-    add.w   d0,a1
+clear_plane_any_cpu
+    movem.l d0-D3/a0-a2,-(a7)
     lea mul40_table(pc),a2
     add.w   d1,d1    
     move.w  (a2,d1.w),d1
     add.w   d1,a1
     move.l  a1,a0
+
+    lsr.w   #3,d0
+    add.w   d0,a1
+    btst    #0,d0
+    beq.b   .even
+    
+    ; odd address
     move.w  #15,d0
+    subq.w  #1,d2
 .yloop
-    move.w  d2,d1
-    addq.w  #1,d1   ; 2-1
+    move.w  d2,d1   ; reload d1
 .xloop
     clr.b   (a0)+
     dbf d1,.xloop
@@ -1456,7 +1464,41 @@ clear_plane_any
     move.l  a1,a0
     dbf d0,.yloop
 .out
-    movem.l (a7)+,d0-D2/a0-a2
+    movem.l (a7)+,d0-D3/a0-a2
+    rts
+
+.even
+    ; odd address
+    move.w  #15,d0
+    lsr.w   #2,d2
+    beq.b   .out    ; < 4 not supported
+    subq.w  #1,d2
+.yloop2
+    move.w  d2,d1
+.xloop2
+    clr.l   (a0)+
+    dbf d1,.xloop2
+    ; next line
+    add.l   #NB_BYTES_PER_LINE,a1
+    move.l  a1,a0
+    dbf d0,.yloop2
+    bra.b   .out
+    
+; what: clears a plane of any width (using blitter), 16 height
+; args:
+; < A1: dest
+; < D0: X (not necessarily multiple of 8)
+; < D1: Y
+; < D2: rect width in bytes (2 is added)
+; trashes: none
+    
+clear_plane_any_blitter:
+    movem.l d0-d6/a1/a5,-(a7)
+    lea _custom,a5
+    moveq.l #-1,d3
+    move.w  #16,d4
+    bsr clear_plane_any_blitter_internal
+    movem.l (a7)+,d0-d6/a1/a5
     rts
     
 draw_last_life:
@@ -1511,8 +1553,8 @@ draw_lives:
 .cloop
     move.l #NB_BYTES_PER_MAZE_LINE*8,d0
     moveq.l #0,d1
-    move.l  #8,d2
-    bsr clear_plane_any
+    move.l  #6,d2
+    bsr clear_plane_any_cpu
     add.w   #SCREEN_PLANE_SIZE,a1
     dbf d7,.cloop
     
@@ -2836,6 +2878,13 @@ count_dot
     bne.b   .still_dots
     ; fill rectangle with color (plane 1)
     movem.l d1-d2/a0-a3,-(a7)
+    tst.w   specrect(a0)
+    beq.b   .no_specrect
+    subq.b  #1,nb_special_rectangles
+    bne.b   .no_specrect
+    ; TODO: can eat enemies
+    blitz
+.no_specrect
     ; plane inc.8,8 offset
     lea screen_data+1+(8*NB_BYTES_PER_LINE),a1
     move.w  hrect(a0),d2
@@ -3273,7 +3322,6 @@ blit_plane_any:
 ; < D2: width in bytes (inc. 2 extra for shifting)
 ; < D3: blit mask
 ; < D4: blit height
-; blit mask set
 ; trashes D0-D6
 ; > A1: even address where blit was done
 blit_plane_any_internal:
@@ -3319,6 +3367,91 @@ blit_plane_any_internal:
 	clr.w bltamod(a5)		;A modulo=bytes to skip between lines
     move.w  d0,bltdmod(a5)	;D modulo
 	move.l a0,bltapt(a5)	;source graphic top left corner
+	move.l a1,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+    rts
+
+;; C version
+;;   UWORD minterm = 0xA;
+;;
+;;    if (mask_base) {
+;;      minterm |= set_bits ? 0xB0 : 0x80;
+;;    }
+;;    else {
+;;      minterm |= set_bits ? 0xF0 : 0x00;
+;;    }
+;;
+;;    wait_blit();
+;;
+;;    // A = Mask of bits inside copy region
+;;    // B = Optional bitplane mask
+;;    // C = Destination data (for region outside mask)
+;;    // D = Destination data
+;;    custom.bltcon0 = BLTCON0_USEC | BLTCON0_USED | (mask_base ? BLTCON0_USEB : 0) | minterm;
+;;    custom.bltcon1 = 0;
+;;    custom.bltbmod = mask_mod_b;
+;;    custom.bltcmod = dst_mod_b;
+;;    custom.bltdmod = dst_mod_b;
+;;    custom.bltafwm = left_word_mask;
+;;    custom.bltalwm = right_word_mask;
+;;    custom.bltadat = 0xFFFF;
+;;    custom.bltbpt = (APTR)mask_start_b;
+;;    custom.bltcpt = (APTR)dst_start_b;
+;;    custom.bltdpt = (APTR)dst_start_b;
+;;    custom.bltsize = (height << BLTSIZE_H0_SHF) | width_words;
+;;  }
+  
+; < A5: custom
+; < D0,D1: x,y
+; < A1: plane pointer
+; < D2: width in bytes (inc. 2 extra for shifting)
+; < D3: blit mask
+; < D4: blit height
+; trashes D0-D6
+; > A1: even address where blit was done
+clear_plane_any_blitter_internal:
+    ; pre-compute the maximum of shit here
+    lea mul40_table(pc),a2
+    add.w   d1,d1
+    beq.b   .d1_zero    ; optim
+    move.w  (a2,d1.w),d1
+    swap    d1
+    clr.w   d1
+    swap    d1
+.d1_zero
+    move.l  #$030A0000,d5   ; minterm useC useD & rect clear (0xA) 
+    move    d0,d6
+    beq.b   .d0_zero
+    and.w   #$F,d6
+    and.w   #$1F0,d0
+    lsr.w   #3,d0
+    add.w   d0,d1
+
+    swap    d6
+    clr.w   d6
+    lsl.l   #8,d6
+    lsl.l   #4,d6
+    or.l    d6,d5            ; add shift
+.d0_zero    
+    add.l   d1,a1       ; plane position (always even)
+
+	move.w #NB_BYTES_PER_LINE,d0
+    sub.w   d2,d0       ; blit width
+
+    lsl.w   #6,d4
+    lsr.w   #1,d2
+    add.w   d2,d4       ; blit height
+
+
+    ; now just wait for blitter ready to write all registers
+	bsr	wait_blit
+    
+    ; blitter registers set
+    move.l  d3,bltafwm(a5)
+	move.l d5,bltcon0(a5)	
+    move.w  d0,bltdmod(a5)	;D modulo
+	move.w  #-1,bltadat(a5)	;source graphic top left corner
+	move.l a1,bltcpt(a5)	;destination top left corner
 	move.l a1,bltdpt(a5)	;destination top left corner
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
     rts
@@ -3947,6 +4080,8 @@ total_number_of_dots:
     dc.b    0
 
 nb_lives:
+    dc.b    0
+nb_special_rectangles:
     dc.b    0
 music_playing:    
     dc.b    0
