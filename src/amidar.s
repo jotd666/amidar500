@@ -51,6 +51,7 @@ INTERRUPTS_ON_MASK = $E038
 	UWORD	direction   ; sprite orientation
     UWORD   frame
     UWORD   speed_table_index
+    UWORD   turn_lock
 	LABEL	Character_SIZEOF
 
 	STRUCTURE	Player,0
@@ -765,8 +766,8 @@ init_enemies
     move.w nb_enemies(pc),d7
     subq.w  #1,d7
     lea _custom+color+32,a4
-    moveq.l #2,d0
-
+    moveq.l #0,d0
+    moveq.w #1,d1
     lea enemies+Enemy_SIZEOF(pc),a0
 .igloop
     ; copy all 4 colors (back them up)
@@ -786,12 +787,14 @@ init_enemies
 
     clr.w   speed_table_index(a0)
 .no_reset    
-    ; all police try to go down/right
-    move.w  #1,h_speed(a0)
+    ; all police try to go down and right or left alternately
+    move.w  d1,h_speed(a0)
+    neg.w   d1
     move.w  #1,v_speed(a0)
 
     clr.b   flashing_as_white(a0)
     
+    clr.w   turn_lock(a0)
 	move.w	#4,ypos(a0)
 	move.w	d0,xpos(a0)
     add.w   #40,d0
@@ -1500,6 +1503,93 @@ clear_plane_any_blitter:
     bsr clear_plane_any_blitter_internal
     movem.l (a7)+,d0-d6/a1/a5
     rts
+
+
+;; C version
+;;   UWORD minterm = 0xA;
+;;
+;;    if (mask_base) {
+;;      minterm |= set_bits ? 0xB0 : 0x80;
+;;    }
+;;    else {
+;;      minterm |= set_bits ? 0xF0 : 0x00;
+;;    }
+;;
+;;    wait_blit();
+;;
+;;    // A = Mask of bits inside copy region
+;;    // B = Optional bitplane mask
+;;    // C = Destination data (for region outside mask)
+;;    // D = Destination data
+;;    custom.bltcon0 = BLTCON0_USEC | BLTCON0_USED | (mask_base ? BLTCON0_USEB : 0) | minterm;
+;;    custom.bltcon1 = 0;
+;;    custom.bltbmod = mask_mod_b;
+;;    custom.bltcmod = dst_mod_b;
+;;    custom.bltdmod = dst_mod_b;
+;;    custom.bltafwm = left_word_mask;
+;;    custom.bltalwm = right_word_mask;
+;;    custom.bltadat = 0xFFFF;
+;;    custom.bltbpt = (APTR)mask_start_b;
+;;    custom.bltcpt = (APTR)dst_start_b;
+;;    custom.bltdpt = (APTR)dst_start_b;
+;;    custom.bltsize = (height << BLTSIZE_H0_SHF) | width_words;
+;;  }
+  
+; < A5: custom
+; < D0,D1: x,y
+; < A1: plane pointer
+; < D2: width in bytes (inc. 2 extra for shifting)
+; < D3: blit mask
+; < D4: blit height
+; trashes D0-D6
+; > A1: even address where blit was done
+clear_plane_any_blitter_internal:
+    ; pre-compute the maximum of shit here
+    lea mul40_table(pc),a2
+    add.w   d1,d1
+    beq.b   .d1_zero    ; optim
+    move.w  (a2,d1.w),d1
+    swap    d1
+    clr.w   d1
+    swap    d1
+.d1_zero
+    move.l  #$030A0000,d5   ; minterm useC useD & rect clear (0xA) 
+    move    d0,d6
+    beq.b   .d0_zero
+    and.w   #$F,d6
+    and.w   #$1F0,d0
+    lsr.w   #3,d0
+    add.w   d0,d1
+
+    swap    d6
+    clr.w   d6
+    lsl.l   #8,d6
+    lsl.l   #4,d6
+    or.l    d6,d5            ; add shift
+.d0_zero    
+    add.l   d1,a1       ; plane position (always even)
+
+	move.w #NB_BYTES_PER_LINE,d0
+    sub.w   d2,d0       ; blit width
+
+    lsl.w   #6,d4
+    lsr.w   #1,d2
+    add.w   d2,d4       ; blit height
+
+
+    ; now just wait for blitter ready to write all registers
+	bsr	wait_blit
+    
+    ; blitter registers set
+    move.l  d3,bltafwm(a5)
+	move.l d5,bltcon0(a5)	
+    move.w  d0,bltdmod(a5)	;D modulo
+	move.w  #-1,bltadat(a5)	;source graphic top left corner
+	move.l a1,bltcpt(a5)	;destination top left corner
+	move.l a1,bltdpt(a5)	;destination top left corner
+	move.w  d4,bltsize(a5)	;rectangle size, starts blit
+    rts
+
     
 draw_last_life:
     lea lives,a0
@@ -2106,6 +2196,8 @@ vbl_counter:
     dc.w    0
 
 
+SONG_1_LENGTH = ORIGINAL_TICKS_PER_SEC*17+ORIGINAL_TICKS_PER_SEC/2-2
+
 ; what: updates game state
 ; args: none
 ; trashes: potentially all registers
@@ -2157,18 +2249,26 @@ update_all
 .playing
     tst.l   state_timer
     bne.b   .no_first_tick
+    move.w  #ORIGINAL_TICKS_PER_SEC*5,.start_music_countdown
     lea start_music_sound,a0
     bsr     play_fx
     ; for demo mode
     addq.w  #1,record_input_clock
 
-    ;moveq.l #0,d0   ; start!!
-    ;bsr play_music
 .no_first_tick
 
 .dec
     bsr update_player
     bsr update_enemies
+
+    move.w  .start_music_countdown(pc),d0
+    subq.w  #1,d0    ; starts after 2 seconds
+    bne.b   .no_start_music
+    moveq.l #0,d0   ; start!!
+    bsr play_music
+    move.w  #SONG_1_LENGTH,d0
+.no_start_music
+    move.w  d0,.start_music_countdown
     
     addq.l  #1,state_timer
     rts
@@ -2182,7 +2282,8 @@ update_all
 
     bra check_pac_enemies_collisions
    
-
+.start_music_countdown
+    dc.w    0
 
 ; is done after both pacman & enemies have been updated, maybe allowing for the
 ; "pass-through" bug at higher levels
@@ -2386,6 +2487,7 @@ update_intro_screen
 update_enemies:
     lea enemies(pc),a4
     move.w nb_enemies(pc),d7
+    move.w  #1,d7
     ;;subq.w  #1,d7
     move.w  player_killed_timer(pc),d6
     bmi.b   .gloop
@@ -2407,7 +2509,7 @@ update_enemies:
     move.l  (a0,d0.w),a0
     jsr (a0)
     add.w   #Enemy_SIZEOF,a4
-    ;;dbf d7,.gloop
+    dbf d7,.gloop
     rts
 
 .animate
@@ -2427,8 +2529,176 @@ enemy_move_table
     dc.l    move_hang
     dc.l    move_fall
 
+BREAKIF:MACRO
+    cmp.w   #\1,d2
+    bne.b   .zap
+    cmp.w   #\2,d3
+    bne.b   .zap
+    blitz
+    nop
+.zap
+    ENDM
+    
+; todo: loop according to instant speed, ATM speed=1
 move_normal
+    move.w  xpos(a4),d2
+    move.w  ypos(a4),d3
+    move.w   h_speed(a4),d4
+    move.w   v_speed(a4),d5
+
+    ;;BREAKIF $A7,$58
+    move.w  direction(a4),d6
+    cmp.w   #UP,d6
+    bcc.b   .hfirst ; UP or DOWN
+
+    ; left or right
+    ; vertical first unless turn lock is set
+    tst.w   turn_lock(a4)
+    beq.b   .normal_vtest
+    subq.w  #1,turn_lock(a4)    ; decrease
+    ; no vertical attempt
+    clr.w   d5
+    bra.b   .direct_htest
+.normal_vtest
+    bsr enemy_try_vertical
+    tst.w   d0
+    bne.b   .done
+.direct_htest
+    bsr enemy_try_horizontal
+    tst.w   d0
+    bne.b   .done
+    ; cannot reach that point
+    move.w  #$F0,_custom+color    
     rts
+    
+.hfirst
+    ; first try to move horizontally
+    bsr enemy_try_horizontal
+    tst.w   d0
+    bne.b   .done
+    ; then try to move vertically
+    bsr enemy_try_vertical
+    tst.w   d0
+    bne.b   .done
+    ; cannot reach that point
+    move.w  #$F00,_custom+color
+    rts
+
+.done
+
+    ; update direction in the end
+    tst.w   d4
+    beq.b   .uvert
+    bmi.b   .uleft
+    move.w  #RIGHT,direction(a4)
+    rts
+    
+.uleft
+    move.w  #LEFT,direction(a4)
+    rts
+
+.uvert
+    tst.w   d5
+    bmi.b   .uup
+    move.w  #DOWN,direction(a4)
+    rts
+.uup
+    move.w  #UP,direction(a4)
+    
+    rts
+
+enemy_try_horizontal
+    move.w  d3,d1
+    ; don't try if not aligned y-wise
+    and.w   #7,d1
+    bne.b   .no_horizonal
+    move.w  d2,d0
+    move.w  d3,d1
+    
+    add.w   d4,d0
+    bmi.b   .no_horizonal_revert    ; off limits
+    cmp.w   #X_MAX+1,d0
+    beq.b   .no_horizonal_revert
+    ; within maze: check if can move horizontally
+    tst.w   d4
+    bmi.b   .to_left
+    ; right
+    add.w   #7,d0
+    bra.b   .htest
+.to_left
+.htest
+    bsr     is_location_legal
+    tst.b   d0
+    beq.b   .no_horizonal
+.hok
+    ; can move: validate
+    add.w  d4,xpos(a4)
+    clr.w   d5
+    moveq.w #1,d0
+    rts
+.no_horizonal
+    clr.w   d4
+    clr.w   d0
+    rts
+.no_horizonal_revert
+    ; off limits, reverse speed
+    neg.w   d4
+    move.w  d4,h_speed(a4)
+    bra.b   .no_horizonal
+    
+enemy_try_vertical
+    move.w  d2,d0
+    ; don't try if not aligned y-wise
+    and.w   #7,d0
+    bne.b   .no_vertical
+    move.w  d2,d0
+
+    move.w  d3,d1
+    add.w   d5,d1
+    bmi.b   .no_vertical_revert    ; off limits
+    cmp.w   #Y_MAX+1,d1
+    beq.b   .no_vertical_revert
+    ; within maze: check if can move horizontally
+    tst.w   d5
+    bmi.b   .to_up
+    ; down
+    add.w   #7,d1
+    bra.b   .htest
+.to_up
+.htest
+    bsr     is_location_legal
+    tst.b   d0
+    beq.b   .no_vertical
+.vok
+    ; can move: validate
+    add.w  d5,ypos(a4)
+    clr.w   d4
+    moveq.w #1,d0
+    rts
+.no_vertical
+    clr.w   d5
+    clr.w   d0
+    rts
+.no_vertical_revert
+    ; off limits, reverse speed
+    ; there's a special case here, the "amidar movement" rule is not
+    ; 100% respected (checked footage of the arcade game)
+    ; if enemy is at min/max x then it's respected, otherwise it's not,
+    ; and the enemy can miss the next up/down turn
+    ;
+    ; X is not corner but corner +/- 8 because vertical test is done at this
+    ; moment
+    cmp.w   #X_MAX-8,d2
+    beq.b   .no_turn_lock
+    cmp.w   #8,d2
+    beq.b   .no_turn_lock
+    move.w  #70,turn_lock(a4)   ; > 40 and < 72 will do
+.no_turn_lock
+    neg.w   d5
+    move.w  d5,v_speed(a4)
+    bra.b   .no_vertical
+
+    
 move_wander
     rts
     
@@ -2453,6 +2723,7 @@ move_border_patrol
     add.w   d5,ypos(a4)
     
     ; TODO: change mode after a while because of mode timer
+    ; first wander then chase
     rts
 .change
     tst.w   d4
@@ -3327,12 +3598,12 @@ blit_plane_any:
 blit_plane_any_internal:
     ; pre-compute the maximum of shit here
     lea mul40_table(pc),a2
-    add.w   d1,d1
-    beq.b   .d1_zero    ; optim
-    move.w  (a2,d1.w),d1
     swap    d1
     clr.w   d1
     swap    d1
+    add.w   d1,d1
+    beq.b   .d1_zero    ; optim
+    move.w  (a2,d1.w),d1
 .d1_zero
     move.l  #$09f00000,d5    ;A->D copy, ascending mode
     move    d0,d6
@@ -3371,91 +3642,6 @@ blit_plane_any_internal:
 	move.w  d4,bltsize(a5)	;rectangle size, starts blit
     rts
 
-;; C version
-;;   UWORD minterm = 0xA;
-;;
-;;    if (mask_base) {
-;;      minterm |= set_bits ? 0xB0 : 0x80;
-;;    }
-;;    else {
-;;      minterm |= set_bits ? 0xF0 : 0x00;
-;;    }
-;;
-;;    wait_blit();
-;;
-;;    // A = Mask of bits inside copy region
-;;    // B = Optional bitplane mask
-;;    // C = Destination data (for region outside mask)
-;;    // D = Destination data
-;;    custom.bltcon0 = BLTCON0_USEC | BLTCON0_USED | (mask_base ? BLTCON0_USEB : 0) | minterm;
-;;    custom.bltcon1 = 0;
-;;    custom.bltbmod = mask_mod_b;
-;;    custom.bltcmod = dst_mod_b;
-;;    custom.bltdmod = dst_mod_b;
-;;    custom.bltafwm = left_word_mask;
-;;    custom.bltalwm = right_word_mask;
-;;    custom.bltadat = 0xFFFF;
-;;    custom.bltbpt = (APTR)mask_start_b;
-;;    custom.bltcpt = (APTR)dst_start_b;
-;;    custom.bltdpt = (APTR)dst_start_b;
-;;    custom.bltsize = (height << BLTSIZE_H0_SHF) | width_words;
-;;  }
-  
-; < A5: custom
-; < D0,D1: x,y
-; < A1: plane pointer
-; < D2: width in bytes (inc. 2 extra for shifting)
-; < D3: blit mask
-; < D4: blit height
-; trashes D0-D6
-; > A1: even address where blit was done
-clear_plane_any_blitter_internal:
-    ; pre-compute the maximum of shit here
-    lea mul40_table(pc),a2
-    add.w   d1,d1
-    beq.b   .d1_zero    ; optim
-    move.w  (a2,d1.w),d1
-    swap    d1
-    clr.w   d1
-    swap    d1
-.d1_zero
-    move.l  #$030A0000,d5   ; minterm useC useD & rect clear (0xA) 
-    move    d0,d6
-    beq.b   .d0_zero
-    and.w   #$F,d6
-    and.w   #$1F0,d0
-    lsr.w   #3,d0
-    add.w   d0,d1
-
-    swap    d6
-    clr.w   d6
-    lsl.l   #8,d6
-    lsl.l   #4,d6
-    or.l    d6,d5            ; add shift
-.d0_zero    
-    add.l   d1,a1       ; plane position (always even)
-
-	move.w #NB_BYTES_PER_LINE,d0
-    sub.w   d2,d0       ; blit width
-
-    lsl.w   #6,d4
-    lsr.w   #1,d2
-    add.w   d2,d4       ; blit height
-
-
-    ; now just wait for blitter ready to write all registers
-	bsr	wait_blit
-    
-    ; blitter registers set
-    move.l  d3,bltafwm(a5)
-	move.l d5,bltcon0(a5)	
-    move.w  d0,bltdmod(a5)	;D modulo
-	move.w  #-1,bltadat(a5)	;source graphic top left corner
-	move.l a1,bltcpt(a5)	;destination top left corner
-	move.l a1,bltdpt(a5)	;destination top left corner
-	move.w  d4,bltsize(a5)	;rectangle size, starts blit
-    rts
-
 
 ; quoting mcgeezer:
 ; "You have to feed the blitter with a mask of your sprite through channel A,
@@ -3463,12 +3649,11 @@ clear_plane_any_blitter_internal:
 ; and you feed your pristine background through channel C."
 
 ; < A5: custom
-; < D0,D1: x,y
+; < D0.W,D1.W: x,y
 ; < A0: source
 ; < A1: destination
 ; < A2: background to mix with cookie cut
 ; < A3: source mask for cookie cut
-; < A4: multiplication table for background (x28 for maze, x40 for screen)
 ; < D2: width in bytes (inc. 2 extra for shifting)
 ; < D3: blit mask
 ; < D4: height
@@ -3480,13 +3665,13 @@ blit_plane_any_internal_cookie_cut:
     movem.l d0-d7,-(a7)
     ; pre-compute the maximum of shit here
     lea mul40_table(pc),a4
+    swap    d1
+    clr.w   d1
+    swap    d1
     add.w   d1,d1
     move.w  d1,d6   ; save it
     beq.b   .d1_zero    ; optim
     move.w  (a4,d1.w),d1
-    swap    d1
-    clr.w   d1
-    swap    d1
 .d1_zero
     move.l  #$0fca0000,d5    ;B+C-A->D cookie cut   
 
@@ -3510,14 +3695,11 @@ blit_plane_any_internal_cookie_cut:
     ; make offset even. Blitter will ignore odd address
     ; but a 68000 CPU doesn't and since we RETURN A1...
     bclr    #0,d1
-    add.l   d1,a1       ; plane position
+    add.l   d1,a1       ; plane position (long: allow unsigned D1)
 
     ; a4 is a multiplication table
     ;;beq.b   .d1_zero    ; optim
     move.w  (a4,d6.w),d1
-    swap    d1
-    clr.w   d1
-    swap    d1
     add.w   d7,a2       ; X
 ;;.d1_zero    
     ; compute offset for maze plane
@@ -3554,7 +3736,6 @@ blit_plane_any_internal_cookie_cut:
     
     movem.l (a7)+,d0-d7
     rts
-
 
 
 ; what: blits 16(32)x16 data on 4 planes (for bonuses), full mask
@@ -4802,7 +4983,7 @@ eat_raw_end
 
   
 music:
-
+    incbin  "amidar_music_conv.mod"
     
 empty_sprite
     dc.l    0,0

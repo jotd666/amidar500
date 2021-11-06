@@ -32,7 +32,10 @@ ISSUES:
 
 - no character restore on the upper left corner (plane offset/sign issue?)
 - turn correction not perfect, sometimes character blocks
--   
+- copy clear_plane..cpu/blitter from mspacman
+- copy copper init from mspacman
+- double buffering: lea([\t ]+)screen_data\+(.*),a1 => LOAD_SCREEN_DATA\1\2
+
 CREDITS:
 
 - jotd: code and gfx/sfx conversion
