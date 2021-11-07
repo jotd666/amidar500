@@ -32,9 +32,10 @@ ISSUES:
 
 - no character restore on the upper left corner (plane offset/sign issue?)
 - turn correction not perfect, sometimes character blocks
-- copy clear_plane..cpu/blitter from mspacman
 - copy copper init from mspacman
-- double buffering: lea([\t ]+)screen_data\+(.*),a1 => LOAD_SCREEN_DATA\1\2
+- level 1: thief almost 8 loops: attacks
+- level 2: thief almost 7 loops: attacks
+- so on...
 
 CREDITS:
 

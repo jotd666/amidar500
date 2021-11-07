@@ -139,6 +139,8 @@ MAZE_ADDRESS_OFFSET = 6*NB_BYTES_PER_LINE+1
 Y_MAX = MAZE_HEIGHT
 X_MAX = (NB_BYTES_PER_MAZE_LINE-1)*8
 
+STARS_OFFSET = NB_BYTES_PER_MAZE_LINE-4+(NB_BYTES_PER_LINE)*(MAZE_HEIGHT+18)
+
 ; messages from update routine to display routine
 MSG_NONE = 0
 MSG_SHOW = 1
@@ -890,7 +892,8 @@ init_player
     move.w  #-1,ghost_eaten_timer
     clr.w   next_ghost_iteration_score
     clr.w   fright_timer    
-   
+    move.b  #3,nb_stars
+    clr.b   jump_lock_counter
     rts
     	    
 
@@ -1189,6 +1192,11 @@ PLAYER_ONE_Y = 102-14
     bra.b   .draw_complete
 .playing
 
+    tst.b   delete_last_star_message
+    beq.b   .no_del_star
+    bsr delete_last_star
+    clr.b   delete_last_star_message
+.no_del_star
 
     bsr draw_player
     bsr draw_enemies
@@ -1608,11 +1616,29 @@ draw_last_life:
 .out
     rts
     
+delete_last_star
+    move.b  nb_stars(pc),d7
+    ext     d7    
+    lea	screen_data+STARS_OFFSET,a1
+    add.w   d7,a1
+    moveq   #3,d2
+.ploop
+    move.l  a1,a2
+    REPT    8
+    clr.b   (a2)
+    add.w   #NB_BYTES_PER_LINE,a2
+    ENDR
+    add.w   #SCREEN_PLANE_SIZE,a1
+    dbf     d2,.ploop    
+    rts
+    
 draw_stars:
-    moveq   #2,d7
+    move.b  nb_stars(pc),d7
+    subq.b  #1,d7
+    ext     d7    
 .lloop
     lea star,a0
-    lea	screen_data+NB_BYTES_PER_MAZE_LINE-4+(NB_BYTES_PER_LINE)*(MAZE_HEIGHT+18),a1
+    lea	screen_data+STARS_OFFSET,a1
     add.l   d7,a1
     moveq   #3,d2
 .ploop
@@ -2487,8 +2513,7 @@ update_intro_screen
 update_enemies:
     lea enemies(pc),a4
     move.w nb_enemies(pc),d7
-    move.w  #1,d7
-    ;;subq.w  #1,d7
+    ;;move.w  #1,d7     ; only thief + one police
     move.w  player_killed_timer(pc),d6
     bmi.b   .gloop
     subq.w  #1,player_killed_timer
@@ -2550,7 +2575,7 @@ move_normal
     move.w  direction(a4),d6
     cmp.w   #UP,d6
     bcc.b   .hfirst ; UP or DOWN
-
+.vfirst
     ; left or right
     ; vertical first unless turn lock is set
     tst.w   turn_lock(a4)
@@ -2567,9 +2592,11 @@ move_normal
     bsr enemy_try_horizontal
     tst.w   d0
     bne.b   .done
-    ; cannot reach that point
-    move.w  #$F0,_custom+color    
-    rts
+    ; cannot reach that point unless blocked
+    ; last chance: clear turn lock and retry
+    ; else it's going to loop forever
+    clr.w   turn_lock(a4)
+    bra.b   .vfirst
     
 .hfirst
     ; first try to move horizontally
@@ -2580,9 +2607,11 @@ move_normal
     bsr enemy_try_vertical
     tst.w   d0
     bne.b   .done
-    ; cannot reach that point
-    move.w  #$F00,_custom+color
-    rts
+    ; cannot reach that point unless blocked
+    ; last chance: clear turn lock and retry
+    ; else it's going to loop forever
+    clr.w   turn_lock(a4)
+    bra.b   .hfirst
 
 .done
 
@@ -2778,9 +2807,14 @@ power_pill_taken
     
 update_player
     lea     player(pc),a4
-    ; no moves
+    ; no moves (zeroes horiz & vert)
     clr.l  h_speed(a4)  
 
+    move.b  jump_lock_counter(pc),d0
+    beq.b   .no_jump_lock
+    subq.b  #1,d0
+    move.b  d0,jump_lock_counter
+.no_jump_lock
     move.w  player_killed_timer(pc),d6
     bmi.b   .alive
     moveq.w #0,d0
@@ -2867,6 +2901,22 @@ update_player
 .no_demo
     tst.l   d0
     beq.b   .out        ; nothing is currently pressed: optimize
+    tst.b   jump_lock_counter
+    bne.b   .no_jump
+    btst    #JPB_BTN_RED,d0
+    beq.b   .no_jump
+    move.b  nb_stars(pc),d1
+    beq.b   .no_jump
+    move.b  #40,jump_lock_counter
+    subq.b  #1,d1
+    move.b  d1,nb_stars
+    st.b    delete_last_star_message
+    lea     jump_sound,a0
+    move.l  d0,-(a7)
+    bsr     play_fx
+    move.l  (a7)+,d0
+    bsr     enemies_jump
+.no_jump
     btst    #JPB_BTN_RIGHT,d0
     beq.b   .no_right
     move.w  #1,h_speed(a4)
@@ -3129,14 +3179,14 @@ DRAW_RECT_LINE:MACRO
     move.b  #$FF,(\2+1,\1)
     move.b  #$FF,(\2+2,\1)
     move.b  #$FF,(\2+3,\1)
-    move.b  #$FE,(\2+4,\1)
+    move.b  #$FF,(\2+4,\1)
     ENDM
 DRAW_RECT_LINE_OR:MACRO
     or.b  #$1F,(\2,\1)
     move.b  #$FF,(\2+1,\1)
     move.b  #$FF,(\2+2,\1)
     move.b  #$FF,(\2+3,\1)
-    or.b  #$FE,(\2+4,\1)
+    or.b  #$FF,(\2+4,\1)
     ENDM
 ; what: count dots and draws the rectangle if 0 dots
 ; (dirty: draws during compute phase)
@@ -3250,7 +3300,9 @@ level_completed:
     move.w  #STATE_LEVEL_COMPLETED,current_state
     rts
 
-	
+enemies_jump
+    rts
+    
 ; the palette is organized so we only need to blit planes 0, 2 and 3 (not 1)
 ; plane 1 contains dots so it avoids to redraw it
 ; plane 0 contains the grid, that has been backed up
@@ -4262,7 +4314,11 @@ total_number_of_dots:
 
 nb_lives:
     dc.b    0
+nb_stars:
+    dc.b    0
 nb_special_rectangles:
+    dc.b    0
+jump_lock_counter
     dc.b    0
 music_playing:    
     dc.b    0
@@ -4290,7 +4346,8 @@ extra_life_awarded
     dc.b    0
 music_played
     dc.b    0
-
+delete_last_star_message
+    dc.b    0
 
     even
 
@@ -4594,6 +4651,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY killed,1,SOUNDFREQ
     SOUND_ENTRY credit,1,SOUNDFREQ
     SOUND_ENTRY eat,3,SOUNDFREQ
+    SOUND_ENTRY jump,1,SOUNDFREQ
 
 
 
@@ -4978,6 +5036,10 @@ eat_raw
     incbin  "eat.raw"
     even
 eat_raw_end
+jump_raw
+    incbin  "jump.raw"
+    even
+jump_raw_end
 
     even
 
