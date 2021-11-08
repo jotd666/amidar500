@@ -69,6 +69,7 @@ INTERRUPTS_ON_MASK = $E038
     APTR     color_register
     UWORD    mode_timer     ; number of 1/50th to stay in the current mode
     UWORD    mode           ; current mode
+    UWORD    previous_mode           ; previous mode
     UWORD    flash_timer
     UWORD    flash_toggle_timer
     UBYTE    flashing_as_white
@@ -113,6 +114,7 @@ MODE_CHASE = 3<<2      ; thief only. thief chases player
 MODE_FRIGHT = 4<<2     ; enemies are killable
 MODE_HANG = 5<<2       ; enemies hang on the maze
 MODE_FALL = 6<<2       ; enemies fall down
+MODE_JUMP = 7<<2
 
 ; --------------- end debug/adjustable variables
 
@@ -893,7 +895,7 @@ init_player
     clr.w   next_ghost_iteration_score
     clr.w   fright_timer    
     move.b  #3,nb_stars
-    clr.b   jump_lock_counter
+    move.w  #-1,jump_index
     rts
     	    
 
@@ -1618,7 +1620,7 @@ draw_last_life:
     
 delete_last_star
     move.b  nb_stars(pc),d7
-    ext     d7    
+    ext     d7
     lea	screen_data+STARS_OFFSET,a1
     add.w   d7,a1
     moveq   #3,d2
@@ -2344,10 +2346,8 @@ check_pac_enemies_collisions
     move.w  mode(a4),d0
     cmp.w   #MODE_FRIGHT,d0
     beq.b   .pac_eats_ghost
-    cmp.w   #MODE_HANG,d0
-    beq.b   .nomatch        ; ignore eyes
-    cmp.w   #MODE_FALL,d0
-    beq.b   .nomatch        ; ignore eyes
+    bcc.b   .nomatch        ; ignore those modes
+
     ; player is killed
     tst.b   invincible_cheat_flag
     bne.b   .nomatch    
@@ -2553,6 +2553,7 @@ enemy_move_table
     dc.l    move_fright
     dc.l    move_hang
     dc.l    move_fall
+    dc.l    move_jump
 
 BREAKIF:MACRO
     cmp.w   #\1,d2
@@ -2563,6 +2564,15 @@ BREAKIF:MACRO
     nop
 .zap
     ENDM
+
+move_jump
+    move.w  jump_index(pc),d1
+    lea jump_height_table(pc),a0
+    move.b  (a0,d1.w),d2
+    ext d2
+    add.w   d2,ypos(a4)
+    rts
+    
     
 ; todo: loop according to instant speed, ATM speed=1
 move_normal
@@ -2810,11 +2820,6 @@ update_player
     ; no moves (zeroes horiz & vert)
     clr.l  h_speed(a4)  
 
-    move.b  jump_lock_counter(pc),d0
-    beq.b   .no_jump_lock
-    subq.b  #1,d0
-    move.b  d0,jump_lock_counter
-.no_jump_lock
     move.w  player_killed_timer(pc),d6
     bmi.b   .alive
     moveq.w #0,d0
@@ -2899,15 +2904,16 @@ update_player
     
     ; read live or recorded controls
 .no_demo
+    tst.w   jump_index
+    bpl.b   .while_jumping
+
     tst.l   d0
     beq.b   .out        ; nothing is currently pressed: optimize
-    tst.b   jump_lock_counter
-    bne.b   .no_jump
     btst    #JPB_BTN_RED,d0
     beq.b   .no_jump
     move.b  nb_stars(pc),d1
     beq.b   .no_jump
-    move.b  #40,jump_lock_counter
+
     subq.b  #1,d1
     move.b  d1,nb_stars
     st.b    delete_last_star_message
@@ -2916,6 +2922,16 @@ update_player
     bsr     play_fx
     move.l  (a7)+,d0
     bsr     enemies_jump
+    ; first time index is -1, and becomes 0
+.while_jumping
+    move.w  jump_index(pc),d1
+    add.w   #1,d1
+    cmp.w   #jump_height_table_end-jump_height_table,d1
+    bne.b   .keep_jump
+    bsr.b   enemies_previous_state
+    moveq   #-1,d1
+.keep_jump
+    move.w  d1,jump_index
 .no_jump
     btst    #JPB_BTN_RIGHT,d0
     beq.b   .no_right
@@ -3188,6 +3204,28 @@ DRAW_RECT_LINE_OR:MACRO
     move.b  #$FF,(\2+3,\1)
     or.b  #$FF,(\2+4,\1)
     ENDM
+
+enemies_jump
+    LOGPC   106
+    lea enemies(pc),a0
+    move.w  nb_enemies(pc),d7
+.jumploop
+    move.w   mode(a0),previous_mode(a0)
+    move.w  #MODE_JUMP,mode(a0)
+    add.w   #Enemy_SIZEOF,a0
+    dbf d7,.jumploop
+    rts
+    
+enemies_previous_state
+    LOGPC   100
+    lea enemies(pc),a0
+    move.w  nb_enemies(pc),d7
+.jumploop
+    move.w   previous_mode(a0),mode(a0)
+    add.w   #Enemy_SIZEOF,a0
+    dbf d7,.jumploop
+    rts
+    
 ; what: count dots and draws the rectangle if 0 dots
 ; (dirty: draws during compute phase)
 ; < A0: pointer on rectangle
@@ -3300,8 +3338,6 @@ level_completed:
     move.w  #STATE_LEVEL_COMPLETED,current_state
     rts
 
-enemies_jump
-    rts
     
 ; the palette is organized so we only need to blit planes 0, 2 and 3 (not 1)
 ; plane 1 contains dots so it avoids to redraw it
@@ -4304,6 +4340,8 @@ death_frame_offset
 
 nb_enemies
     dc.w    4
+jump_index
+    dc.w   0
     
 maze_outline_color
     dc.w    0
@@ -4317,8 +4355,6 @@ nb_lives:
 nb_stars:
     dc.b    0
 nb_special_rectangles:
-    dc.b    0
-jump_lock_counter
     dc.b    0
 music_playing:    
     dc.b    0
@@ -4653,11 +4689,10 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY eat,3,SOUNDFREQ
     SOUND_ENTRY jump,1,SOUNDFREQ
 
-
-
-
-    dc.l    0
-    
+jump_height_table
+	dc.b	-2,-2,-2,-2,-2,-2,-1,-2,-1,-2,-1,-1,-1,0,-1,-1,0,0,0,-1
+	dc.b	1,0,0,0,1,1,0,1,1,1,2,1,2,1,2,2,2,2,2,2
+jump_height_table_end    
 
 
  ; speed table at 60 Hz
