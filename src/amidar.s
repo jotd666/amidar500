@@ -94,7 +94,7 @@ Execbase  = 4
 ;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
 
 ; if set skips intro and start music, game starts almost immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -303,7 +303,7 @@ Start:
     ; intro screen
     
     
-    moveq #NB_PLANES,d4
+    moveq #NB_PLANES-1,d4
     lea	bitplanes,a0              ; adresse de la Copper-List dans a0
     move.l #screen_data,d1
     move.w #bplpt,d3        ; premier registre dans d3
@@ -896,6 +896,8 @@ init_player
     clr.w   fright_timer    
     move.b  #3,nb_stars
     move.w  #-1,jump_index
+    move.w  #4,jump_frame
+    
     rts
     	    
 
@@ -1105,6 +1107,14 @@ draw_enemies_normal
 
     move.l  frame_table(a0),a1
 
+    cmp.w   #MODE_JUMP,d3
+    bne.b   .no_jump
+    ; choose the frame among jump/hang/fall
+    move.w  jump_frame(pc),d2
+    add.w   d2,d2
+    add.w   d2,d2
+    bra.b   .get_frame
+.no_jump
     move.w  frame(a0),d2
     
     lsr.w   #2,d2   ; 8 divide to get 0,1
@@ -1149,7 +1159,7 @@ draw_enemies_normal
 ;    move.l  color_register(a0),a3
 ;    move.l  (a2)+,(a3)+
 ;    move.l  (a2)+,(a3)+
-
+.get_frame
     ; get proper frame from proper frame set
     move.l  (a1,d2.w),a1
     ; now if D6 is non-zero, handle shift
@@ -1898,7 +1908,8 @@ clear_dot
     clr.b  (NB_BYTES_PER_LINE,a1)
     clr.b  (NB_BYTES_PER_LINE*2,a1)
     clr.b  (NB_BYTES_PER_LINE*3,a1)
-    clr.b  (NB_BYTES_PER_LINE*4,a1) ; one more
+    clr.b  (NB_BYTES_PER_LINE*4,a1)
+    clr.b  (NB_BYTES_PER_LINE*5,a1)
     
     rts
     
@@ -2439,7 +2450,8 @@ update_intro_screen
     lea enemies(pc),a0
     add.w   d0,a0
 
-    ; animate ghost
+    ; animate enemies
+
     move.w  frame(a0),d2
     addq.w  #1,d2
     and.w   #$F,d2
@@ -2522,13 +2534,12 @@ update_enemies:
     move.w  #STATE_LIFE_LOST,current_state
     rts
 .glkill
-    bsr .animate
+    bsr animate_enemy
     add.w   #Enemy_SIZEOF,a4
     dbf d7,.glkill
     rts
     
 .gloop
-    bsr .animate
     move.w  mode(a4),d0
     lea     enemy_move_table(pc),a0
     move.l  (a0,d0.w),a0
@@ -2537,8 +2548,7 @@ update_enemies:
     dbf d7,.gloop
     rts
 
-.animate
-    ; player killed, just update ghost animations but don't move
+animate_enemy
     move.w  frame(a4),d1
     addq.w  #1,d1
     and.w   #$F,d1
@@ -2576,6 +2586,8 @@ move_jump
     
 ; todo: loop according to instant speed, ATM speed=1
 move_normal
+    bsr animate_enemy
+
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
     move.w   h_speed(a4),d4
@@ -2742,6 +2754,7 @@ move_wander
     rts
     
 move_border_patrol    
+    bsr animate_enemy
 .retry
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
@@ -2987,7 +3000,7 @@ update_player
     move.w  d2,d6   ; save it
     move.w  d3,d1
     bsr  get_dot_rectangles
-    ; set registers d4-d6 with pointers on rectangles²
+    ; set registers d4-d6 with pointers on rectangles
     move.l  d1,d5
     exg.l   d2,d6
     move.l  d0,d4
@@ -3002,11 +3015,16 @@ update_player
     move.w  d2,d0
     move.w  d3,d1
     addq.w  #8,d0
-    addq.w  #5,d1
-
+    addq.w  #1,d1
+    cmp.w   #UP,direction(a4)
+    beq.b   .noadd
+    cmp.w   #DOWN,direction(a4)
+    beq.b   .noadd
+    addq.w  #2,d1
+.noadd
     ADD_XY_TO_A1    a0
-    bsr clear_dot
     
+    bsr clear_dot
     move.l  d4,a0
     bsr     count_dot
 .z
@@ -3021,7 +3039,6 @@ update_player
     bsr     count_dot
 .z3
 
-    
 
 .no_move
     rts
@@ -3206,7 +3223,15 @@ DRAW_RECT_LINE_OR:MACRO
     ENDM
 
 enemies_jump
-    LOGPC   106
+    ; cycle jump frames
+    move.w  jump_frame(pc),d7
+    add.w   #1,d7
+    cmp.w   #4+7,d7
+    bne.b   .nowrap
+    move.w  #4,d7
+.nowrap
+    move.w  d7,jump_frame
+    
     lea enemies(pc),a0
     move.w  nb_enemies(pc),d7
 .jumploop
@@ -3268,7 +3293,7 @@ count_dot
     add.w   d1,a2
     add.w   d1,a3
     dbf d2,.filly
-    
+
     movem.l (a7)+,d1-d2/a0-a3
     moveq.l   #0,d0
     move.w  points(a0),d0
@@ -3553,6 +3578,7 @@ get_dot_rectangles:
     bcc.b   .out_of_bounds
     ; no need to test sign (bmi) as bcc works unsigned so works on negative!
     ; apply x,y offset
+    add.w   #4,d1       ; center
     
     lsr.w   #3,d1       ; 8 divide : tile
     lea     mul26_table(pc),a0
@@ -4342,7 +4368,8 @@ nb_enemies
     dc.w    4
 jump_index
     dc.w   0
-    
+jump_frame
+    dc.w    0
 maze_outline_color
     dc.w    0
 maze_fill_color
@@ -4682,11 +4709,14 @@ SOUND_ENTRY:MACRO
     
     ; radix, ,channel (0-3)
     SOUND_ENTRY start_music,1,SOUNDFREQ
+    SOUND_ENTRY lose_bonus,1,SOUNDFREQ
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
+    SOUND_ENTRY player_killed,2,SOUNDFREQ
     SOUND_ENTRY killed,1,SOUNDFREQ
     SOUND_ENTRY credit,1,SOUNDFREQ
     SOUND_ENTRY eat,3,SOUNDFREQ
+    SOUND_ENTRY ping,3,SOUNDFREQ
     SOUND_ENTRY jump,1,SOUNDFREQ
 
 jump_height_table
@@ -4799,9 +4829,9 @@ dot_table
     SECTION  S4,DATA,CHIP
 ; main copper list
 coplist
-bitplanes:
    dc.l  $01080000
    dc.l  $010a0000
+bitplanes:
    dc.l  $00e00000
    dc.l  $00e20000
    dc.l  $00e40000
@@ -4949,6 +4979,10 @@ DECL_GHOST:MACRO
     dc.l    \1_police_jump_0
     dc.l    \1_police_jump_1
 \1_police_jump_end_frame_table:
+\1_police_hang_frame_table:
+    dc.l    \1_police_hang_0
+    dc.l    \1_police_hang_1
+\1_police_hang_end_frame_table:
 \1_police_fall_frame_table:
     dc.l    \1_police_fall_0
     dc.l    \1_police_fall_1
@@ -5058,6 +5092,14 @@ start_music_raw
     incbin  "start_music.raw"
     even
 start_music_raw_end
+lose_bonus_raw
+    incbin  "lose_bonus.raw"
+    even
+lose_bonus_raw_end
+ping_raw
+    incbin  "ping.raw"
+    even
+ping_raw_end
 enemy_hit_raw
     incbin  "enemy_hit.raw"
     even
@@ -5066,6 +5108,10 @@ enemy_killed_raw
     incbin  "enemy_killed.raw"
     even
 enemy_killed_raw_end
+player_killed_raw
+    incbin  "player_killed.raw"
+    even
+player_killed_raw_end
 
 eat_raw
     incbin  "eat.raw"

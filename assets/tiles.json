@@ -38,6 +38,7 @@
  {
       "generate_mask":true,
   "name":"rustler_up",
+  "sprite_number":6,
    "frames":2,
    "start_x":0,
    "start_y":64
@@ -52,7 +53,8 @@
  {
       "generate_mask":true,
   "name":"rustler_down",
-   "frames":2,
+ "sprite_number":6,
+    "frames":2,
    "start_x":64,
    "start_y":64
  },
@@ -60,13 +62,15 @@
 {
       "generate_mask":true,
   "name":"rustler_right",
-    "frames":2,
+ "sprite_number":6,
+     "frames":2,
    "start_x":96,
    "start_y":64
  },
 {
       "generate_mask":true,
   "name":"rustler_dead",
+  "sprite_number":6,
     "frames":3,
    "start_x":128,
    "start_y":64
