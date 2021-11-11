@@ -384,6 +384,8 @@ intro:
     beq.b   .intro_loop
     clr.b   demo_mode
 .out_intro    
+
+
     clr.w   state_timer
     move.w  #STATE_GAME_START_SCREEN,current_state
     
@@ -406,7 +408,11 @@ intro:
     beq.b   .game_start_loop
 
 .no_credit
-    
+
+.wait_fire_release
+    move.l  joystick_state(pc),d0
+    btst    #JPB_BTN_RED,d0
+    bne.b   .wait_fire_release    
 .restart    
     lea _custom,a5
     move.w  #$7FFF,(intena,a5)
@@ -1383,30 +1389,31 @@ DRAW_GHOST_INFO:MACRO
 draw_start_screen
     bsr hide_sprites
     bsr clear_screen
-	
-	; write mrspacman bob
-    lea lives,a0
-    moveq.l #-1,d2  ; mask
-    move.w  #104,d0
-    move.w #160,d1
-    ;;bsr blit_4_planes
+    
+    bsr draw_title
+    
 	
     lea .psb_string(pc),a0
     move.w  #48,d0
     move.w  #96,d1
-    move.w  #$0fb5,d2
+    move.w  #$0F0,d2
     bsr write_color_string
     
     lea .opo_string(pc),a0
     move.w  #48+16,d0
     move.w  #116,d1
-    move.w  #$0fb5,d2
+    move.w  #$0f00,d2
 	
     bsr write_color_string
     lea .bp1_string(pc),a0
     move.w  #16,d0
+    move.w  #148,d1
+    move.w  #$0FF,d2
+    bsr write_color_string
+    lea .bp2_string(pc),a0
+    move.w  #16,d0
     move.w  #192-24,d1
-    move.w  #$d94,d2
+    move.w  #$FFF,d2
     bsr write_color_string
     
     rts
@@ -1416,7 +1423,9 @@ draw_start_screen
 .opo_string:
     dc.b    "1 PLAYER ONLY",0
 .bp1_string
-    dc.b    "ADDITIONAL ## AT 10000 pts",0
+    dc.b    "1ST BONUS AFTER 30000 PTS",0
+.bp2_string
+    dc.b    "AND BONUS EVERY 70000 PTS",0
     even
     
     
@@ -1436,16 +1445,7 @@ draw_intro_screen
     move.w  #48-24,d1
     move.w  #$0f0,d2
     bsr write_color_string    
-    lea    .title(pc),a0
-    move.w  #64,d0
-    move.w  #72-24,d1
-    move.w  #$0ff0,d2
-    bsr write_color_string    
-    lea    .copyright(pc),a0
-    move.w  #64,d0
-    move.w  #222-24,d1
-    move.w  #$0fff,d2
-    bsr write_color_string    
+    bsr draw_title
     ; first update, don't draw enemies or anything as they're not initialized
     ; (draw routine is called first)
     rts
@@ -1456,14 +1456,26 @@ draw_intro_screen
     
 .play
     dc.b    'PLAY',0
-.title
-    dc.b    '-  AMIDAR  -',0
-.copyright
-    dc.b    'c KONAMI  1982',0
 
     even
-    
+   
+draw_title
+    lea    .title(pc),a0
+    move.w  #64,d0
+    move.w  #72-24,d1
+    move.w  #$0ff0,d2
+    bsr write_color_string    
+    lea    .copyright(pc),a0
+    move.w  #64,d0
+    move.w  #222-24,d1
+    move.w  #$0fff,d2
+    bra write_color_string    
 
+.title
+    dc.b    '-  AMIGAR  -',0
+.copyright
+    dc.b    'c KONAMI  1982',0
+    even
 
 ; what: clears a plane of any width (not using blitter, no shifting, start is multiple of 8), 16 height
 ; args:
