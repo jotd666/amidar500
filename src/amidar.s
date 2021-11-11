@@ -103,7 +103,8 @@ Execbase  = 4
 ; the player (me :)) isn't pressing any direction at all.
 ;RECORD_INPUT_TABLE_SIZE = 100*ORIGINAL_TICKS_PER_SEC
 
-EXTRA_LIFE_SCORE = 10000/10
+EXTRA_LIFE_SCORE = 30000/10
+EXTRA_LIFE_PERIOD = 70000/10
 
 START_LEVEL = 1
 
@@ -608,6 +609,7 @@ init_new_play:
     clr.b   extra_life_awarded
     clr.b    music_played
     move.w  #START_LEVEL-1,level_number
+    clr.b   bonus_sprites
     clr.l   score
     clr.l   displayed_score
     rts
@@ -625,7 +627,9 @@ init_level:
 .out
     
     ; level
-    move.w  level_number,d2
+    move.w  level_number(pc),d2
+    btst    #0,d2
+  
     cmp.w   #21,d2
     bcs.b   .okay
     ; maxed out
@@ -766,7 +770,16 @@ init_enemies
     move.b  d0,d4
     lea enemies+Enemy_SIZEOF(pc),a0
     lea enemy_sprites,a1   ; the sprite part of the copperlist, sprite 1-7 are the ghost sprites
+    
+    ; palette depends on the level number
+    lea alt_sprite_palette(pc),a3  ; the sprite part of the color palette 16-31
+    tst.b   bonus_sprites
+    bne.b   .rustler
+    move.w  level_number(pc),d0
+    btst    #0,d0
+    bne.b   .rustler
     lea game_palette+32(pc),a3  ; the sprite part of the color palette 16-31
+.rustler
     ; shared settings
     moveq   #6,d7
     ; clear all enemies
@@ -835,20 +848,42 @@ init_enemies
 
 
     ; specific settings
+    tst.b   bonus_sprites
+    bne.b   .cattle
     lea enemies(pc),a0
-    move.l  #police1_police_frame_table,frame_table(a0)
+    move.w  level_number(pc),d0
+    btst    #0,d0
+    beq.b   .police
+.cattle    
+    move.l  #cattle1_frame_table,frame_table(a0)
     add.w  #Enemy_SIZEOF,a0
-    move.l  #police2_police_frame_table,frame_table(a0)
+    move.l  #cattle2_frame_table,frame_table(a0)
     add.w  #Enemy_SIZEOF,a0
-    move.l #police3_police_frame_table,frame_table(a0)
+    move.l #cattle3_frame_table,frame_table(a0)
     add.w  #Enemy_SIZEOF,a0
-    move.l #police4_police_frame_table,frame_table(a0)
+    move.l #cattle4_frame_table,frame_table(a0)
     add.w  #Enemy_SIZEOF,a0
-    move.l #police5_police_frame_table,frame_table(a0)
+    move.l #cattle5_frame_table,frame_table(a0)
     add.w  #Enemy_SIZEOF,a0
-    move.l #police6_police_frame_table,frame_table(a0)
+    move.l #cattle6_frame_table,frame_table(a0)
     add.w  #Enemy_SIZEOF,a0
-    move.l #police7_police_frame_table,frame_table(a0)
+    move.l #cattle7_frame_table,frame_table(a0)
+    
+    rts
+.police
+    move.l  #police1_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l  #police2_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police3_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police4_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police5_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police6_frame_table,frame_table(a0)
+    add.w  #Enemy_SIZEOF,a0
+    move.l #police7_frame_table,frame_table(a0)
     
     rts
     
@@ -1353,38 +1388,6 @@ random:
     move.l  d0,previous_random
     rts
 
-X_TEXT = 56
-Y_TEXT = 16
-GHOST_DESC_HEIGHT = 24
-
-X_DOT = 120
-Y_DOT = 160
-
-Y_PAC_ANIM = 136
-X_DEMO_POWER_PILL = 48
-DEMO_PACMAN_TIMER = NB_TICKS_PER_SEC*14
-DEMO_DOT_SCORE_TIMER = NB_TICKS_PER_SEC*12
-DEMO_POWER_PILL_TIMER = NB_TICKS_PER_SEC*13
-
-DRAW_GHOST_INFO:MACRO
-    cmp.w   #NB_TICKS_PER_SEC*(\2*3+1),state_timer
-    bne.b   .no_show_\1
-    moveq.l #\2,d0
-    bra.b .draw_ghost_bob
-.no_show_\1
-    cmp.w   #NB_TICKS_PER_SEC*(\2*3+2),state_timer
-    bne.b   .no_show_\1_text
-    moveq.l #\2,d0
-    bsr .draw_ghost_text
-    move.w  d0,.nb_written
-    rts
-.no_show_\1_text
-    cmp.w   #NB_TICKS_PER_SEC*(\2*3+2)+(NB_TICKS_PER_SEC/2)+1,state_timer
-    bne.b   .no_show_\1_text_2
-    moveq.l #\2,d0
-    bra .draw_ghost_text
-.no_show_\1_text_2
-    ENDM
     
 draw_start_screen
     bsr hide_sprites
@@ -1435,9 +1438,17 @@ GHOST_TEXT_X = WHITE_TEXT_X+16
 GHOST_TEXT_Y = WHITE_TEXT_Y+24
 
 draw_intro_screen
-    tst.w   state_timer
-    bne.b   .no_first
-
+    move.l  state_timer(pc),d0
+    tst.l   d0
+    beq.b   .init1
+    cmp.l   #ORIGINAL_TICKS_PER_SEC*10,d0
+    beq.b   .init2
+    cmp.l   #ORIGINAL_TICKS_PER_SEC*20,d0
+    beq.b   .init3
+    bra.b   .no_first
+.init1    
+    bsr hide_sprites
+    
     bsr draw_intro_maze
 
     lea    .play(pc),a0
@@ -1449,30 +1460,146 @@ draw_intro_screen
     ; first update, don't draw enemies or anything as they're not initialized
     ; (draw routine is called first)
     rts
+.init2
+    bsr hide_sprites
+    bsr clear_screen
+    bsr draw_score
+    ; high scores
+    move.w  #40,d0
+    move.w  #8,d1
+    lea .score_ranking(pc),a0
+    move.w  #$0F0,d2
+    bsr     write_color_string
     
-.no_first    
+    move.w  #24,D1
+    lea     .color_table(pc),a2
+    lea     .pos_table(pc),a3
+    lea     hiscore_table(pc),a4
+    move.w  #9,d5
+.ws
+    move.w  (a2)+,d2    ; color
+    move.l  (a3)+,a0
+    move.w  #32,d0
+    bsr write_color_string
     
+    move.w  d2,d4
+    move.w  #56,d0
+    move.l  (a4)+,d2
+    move.w  #8,d3
+    bsr write_color_decimal_number
+    
+    move.w  d4,d2
+    move.w  #120,d0
+    lea .pts(pc),a0
+    bsr write_color_string
+    
+    add.w   #16,d1
+    dbf d5,.ws
+    
+    bra draw_copyright
+    
+.init3
+    ; characters
+    rts
+    
+.no_first
+    ; just draw single cattle
+
+    lea enemies+Enemy_SIZEOF(pc),a0
+    
+    move.w  xpos(a0),d0
+    addq.w  #2,d0       ; compensate
+.do_display
+    move.w  ypos(a0),d1
+    addq.w  #3,d1   ; compensate
+    ; center => top left
+    bsr store_sprite_pos
+
+    move.l  frame_table(a0),a1
+    move.w  frame(a0),d2
+    lsr.w   #2,d2   ; 8 divide to get 0,1
+    bclr    #0,d2   ; even
+    add.w   d2,d2       ; times 2
+
+    ; get proper frame from proper frame set
+    move.l  (a1,d2.w),a1
+
+    move.l  d0,(a1)     ; store control word
+    move.l  a1,d2    
+    move.l  copperlist_address(a0),a1
+    move.w  d2,(6,a1)
+    swap    d2
+    move.w  d2,(2,a1)    
     rts
     
 .play
     dc.b    'PLAY',0
-
+.pts
+    dc.b    "0 PTS  hhh",0
+    
+.pos1
+    dc.b    "1ST",0
+.pos2
+    dc.b    "2ND",0
+.pos3
+    dc.b    "3RD",0
+.pos4
+    dc.b    "4TH",0
+.pos5
+    dc.b    "5TH",0
+.pos6
+    dc.b    "6TH",0
+.pos7
+    dc.b    "7TH",0
+.pos8
+    dc.b    "8TH",0
+.pos9
+    dc.b    "9TH",0
+.pos10
+    dc.b    "10TH",0
+.score_ranking
+    dc.b    "- SCORE RANKING -",0
     even
-   
+.color_table
+    dc.w    $0FF,$0FF,$FFF,$FFF,$FF0,$FF0,$0F0,$0F0,$F00,$F00
+.pos_table  
+    dc.l    .pos1
+    dc.l    .pos2
+    dc.l    .pos3
+    dc.l    .pos4
+    dc.l    .pos5
+    dc.l    .pos6
+    dc.l    .pos7
+    dc.l    .pos8
+    dc.l    .pos9
+    dc.l    .pos10
+    even
+    
+
+hiscore_table:
+high_score
+    REPT    10
+    dc.l    1000
+    ENDR
+    
+
 draw_title
     lea    .title(pc),a0
     move.w  #64,d0
     move.w  #72-24,d1
     move.w  #$0ff0,d2
-    bsr write_color_string    
+    bsr write_color_string 
+    bra.b   draw_copyright
+
+.title
+    dc.b    '-  AMIGAR  -',0
+    even
+draw_copyright
     lea    .copyright(pc),a0
     move.w  #64,d0
     move.w  #222-24,d1
     move.w  #$0fff,d2
     bra write_color_string    
-
-.title
-    dc.b    '-  AMIGAR  -',0
 .copyright
     dc.b    'c KONAMI  1982',0
     even
@@ -2500,114 +2627,33 @@ a_ghost_was_eaten:
 update_intro_screen
     tst.l   state_timer
     bne.b   .no_first
-    ; first update: init everything
-    ; 6 moving white dots, moving on a 34x16 grid (100 dots)
-    ; spaced by roughly 16 dots
-    ; 1-d coord (0-99) is enough to position them
-
-    clr.w   intro_text_message
     
-    lea dot_positions(pc),a0
-    move.b  #7,d0
-    move.w  #5,d1
-.dotloop
-    move.b  d0,(a0)+
-    add.b   #16,d0
-    dbf d1,.dotloop
-    
-    bsr init_player
-   
-    
+    st.b    bonus_sprites
     moveq.l #0,d0
     bsr init_enemies
-    lea enemies(pc),a0
-    moveq.w #3,d0
-.loop
-    move.w  #260,xpos(a0)
-    move.w  #170,ypos(a0)
+    lea enemies+Enemy_SIZEOF(pc),a0
+
+    move.w  #120,xpos(a0)
+    move.w  #84-24,ypos(a0)
     move.w  #LEFT,direction(a0)
-    add.w  #Enemy_SIZEOF,a0
-    dbf d0,.loop
-    
-    move.w  #93,.y_target
-    move.w   #4*Enemy_SIZEOF,.ghost_to_update    
+
 .no_first
     add.l   #1,state_timer
 
-    ; decrease dot positions (animate)
-    lea dot_positions(pc),a0
-    move.w  #5,d1
-.dotloop2
-    move.b  (a0),d0
-    subq.b  #1,d0
-    bpl.b   .no100
-    move.b   #99,d0
-.no100
-    move.b  d0,(a0)+
-    dbf d1,.dotloop2
-
-    ; now enemies
-
-    move.w  .ghost_to_update(pc),d0
-    cmp.w   #4*Enemy_SIZEOF,d0
-    beq.b   .no_ghost
-    
-    lea enemies(pc),a0
-    add.w   d0,a0
+    lea enemies+Enemy_SIZEOF(pc),a4
 
     ; animate enemies
 
-    move.w  frame(a0),d2
-    addq.w  #1,d2
-    and.w   #$F,d2
-    move.w  d2,frame(a0)
+    bsr animate_enemy
     
-    cmp.w   #LEFT,direction(a0)
+    cmp.w   #LEFT,direction(a4)
     bne.b   .up
-    sub.w   #1,xpos(a0)
-    cmp.w   #80-16,xpos(a0)
-    bne.b   .no_dirchange
-    move.w  #UP,direction(a0)
-    bra.b   .no_dirchange
+    ;sub.w   #1,xpos(a4)
 .up
-    move.w  ypos(a0),d0
+    move.w  ypos(a4),d0
     sub.w   #1,d0
-    move.w  d0,ypos(a0)
-    cmp.w   .y_target(pc),d0
-    bne.b   .no_dirchange
-.next_ghost_iteration
-    add.w   #1,intro_text_message       ; next ghost / mspacman
-    add.w   #Enemy_SIZEOF,.ghost_to_update
-    add.w   #17,.y_target
-.no_dirchange
-    
-.no_ghost
-    cmp.w   #6,intro_text_message
-    bne.b   .nomspac
-    lea     player(pc),a4
-    cmp.w   #132,xpos(a4)
-    beq.b   .nomspac
-    eor.w   #1,.anim_ms_pac
-    beq.b   .no_anim
-    bsr     animate_player
-.no_anim
-    subq.w  #1,xpos(a4)
-.nomspac
-    move.l  state_timer(pc),d0
-    cmp.l   #$4E0,d0
-    beq.b   .demo
-    ; text handling
-    cmp.w   #58,d0
-    bne.b   .no_with
-    move.w  #1,intro_text_message
-    bra.b   .out_text
-.no_with
-    cmp.w   #60,d0
-    bne.b   .no_blinky
-    move.w  #2,intro_text_message
-    clr.w   .ghost_to_update    ; start ghost moves
-.no_blinky    
-.out_text
+    ;move.w  d0,ypos(a4)
+
     rts
 .demo
     ; change state
@@ -2658,7 +2704,6 @@ animate_enemy
     addq.w  #1,d1
     and.w   #$F,d1
     move.w  d1,frame(a4)
-    
     rts
 enemy_move_table
     dc.l    move_normal
@@ -3347,7 +3392,6 @@ enemies_jump
     rts
     
 enemies_previous_state
-    LOGPC   100
     lea enemies(pc),a0
     move.w  nb_enemies(pc),d7
 .jumploop
@@ -4284,12 +4328,12 @@ write_string:
     moveq.l #0,d2
     bra.b   .wl
 .noquote
-    cmp.b   #'$',d2
-    bne.b   .noquote2
-    lea quote2(pc),a2
+    cmp.b   #'h',d2
+    bne.b   .noheart
+    lea heart(pc),a2
     moveq.l #0,d2
     bra.b   .wl
-.noquote2
+.noheart
     cmp.b   #'c',d2
     bne.b   .nocopy
     lea copyright(pc),a2
@@ -4316,8 +4360,8 @@ load_highscores
     beq.b   .no_file
     ; file is present, read it
     lea scores_name(pc),a0    
-    lea high_score(pc),a1
-    moveq.l #4,d0   ; size
+    lea hiscore_table(pc),a1
+    move.l #40,d0   ; size
     moveq.l #0,d1   ; offset
     jmp  (resload_LoadFileOffset,a2)
     
@@ -4330,7 +4374,7 @@ load_highscores
     beq.b   .no_file
     move.l  d1,d4
     move.l  #4,d3
-    move.l  #high_score,d2
+    move.l  #hiscore_table,d2
     jsr (_LVORead,a6)
     move.l  d4,d1
     jsr (_LVOClose,a6)    
@@ -4347,8 +4391,8 @@ save_highscores
     beq.b   .standard
     move.l  d0,a2
     lea scores_name(pc),a0    
-    lea high_score(pc),a1
-    moveq.l #4,d0   ; size
+    lea hiscore_table(pc),a1
+    move.l #40,d0   ; size
     jmp  (resload_SaveFile,a2)
     
 .standard
@@ -4359,8 +4403,8 @@ save_highscores
     move.l  d0,d1
     beq.b   .out
     move.l  d1,d4
-    move.l  #4,d3
-    move.l  #high_score,d2
+    move.l  #40,d3
+    move.l  #hiscore_table,d2
     jsr (_LVOWrite,a6)
     move.l  d4,d1
     jsr (_LVOClose,a6)    
@@ -4413,8 +4457,7 @@ score
     dc.l    0
 displayed_score
     dc.l    0
-high_score
-    dc.l    0
+
 
 
 ; general purpose timer for non-game states (intro, game over...)
@@ -4483,6 +4526,8 @@ total_number_of_dots:
     dc.b    0
 
 nb_lives:
+    dc.b    0
+bonus_sprites:
     dc.b    0
 nb_stars:
     dc.b    0
@@ -4663,8 +4708,8 @@ dash
     incbin  "dash.bin"
 quote
     incbin  "quote.bin"
-quote2
-    incbin  "quote2.bin"
+heart
+    incbin  "heart.bin"
 copyright
     incbin  "copyright.bin"
 space
@@ -4888,6 +4933,8 @@ frightened_enemies_white_palette
 
 game_palette
     include "palette.s"
+alt_sprite_palette
+    include "alt_palette.s"
     
 player:
     ds.b    Player_SIZEOF
@@ -4995,12 +5042,7 @@ end_color_copper:
    dc.w intreq,$8010            ; generate copper interrupt
     dc.l    -2
 
-    
-     
-ghost_bob_table:
-    dc.l    .ghost_bobs,.ghost_bobs+320,.ghost_bobs+320*2,.ghost_bobs+320*3
-.ghost_bobs:
-
+   
 
 copier_left_0
     incbin  "copier_left_0.bin"
@@ -5074,76 +5116,76 @@ bonus_scores:
   
     
     
-DECL_GHOST:MACRO
-\1_police_frame_table:
-    dc.l    \1_police_0
-    dc.l    \1_police_1
-    dc.l    \1_police_2
-    dc.l    \1_police_3
-\1_police_end_frame_table:
-\1_police_jump_frame_table:
-    dc.l    \1_police_jump_0
-    dc.l    \1_police_jump_1
-\1_police_jump_end_frame_table:
-\1_police_hang_frame_table:
-    dc.l    \1_police_hang_0
-    dc.l    \1_police_hang_1
-\1_police_hang_end_frame_table:
-\1_police_fall_frame_table:
-    dc.l    \1_police_fall_0
-    dc.l    \1_police_fall_1
-    dc.l    \1_police_fall_2
-    dc.l    \1_police_fall_3
-\1_police_fall_end_frame_table:
+DECL_POLICE:MACRO
+\1_frame_table:
+    dc.l    \1_0
+    dc.l    \1_1
+    dc.l    \1_2
+    dc.l    \1_3
+\1_end_frame_table:
+\1_jump_frame_table:
+    dc.l    \1_jump_0
+    dc.l    \1_jump_1
+\1_jump_end_frame_table:
+\1_hang_frame_table:
+    dc.l    \1_hang_0
+    dc.l    \1_hang_1
+\1_hang_end_frame_table:
+\1_fall_frame_table:
+    dc.l    \1_fall_0
+    dc.l    \1_fall_1
+    dc.l    \1_fall_2
+    dc.l    \1_fall_3
+\1_fall_end_frame_table:
 
     
     ; all enemies share the same graphics, only the colors are different
     ; but we need to replicate the graphics 8*4 times because of sprite control word
-\1_police_0
+\1_0
     dc.l    0
     incbin  "police_0.bin"
     dc.l    0
-\1_police_1
+\1_1
     dc.l    0
     incbin  "police_1.bin"
     dc.l    0
-\1_police_2
+\1_2
     dc.l    0
     incbin  "police_2.bin"
     dc.l    0
-\1_police_3
+\1_3
     dc.l    0
     incbin  "police_3.bin"
     dc.l    0
-\1_police_hang_0
+\1_hang_0
     dc.l    0
     incbin  "police_hang_0.bin"
     dc.l    0
-\1_police_hang_1
+\1_hang_1
     dc.l    0
     incbin  "police_hang_1.bin"
     dc.l    0
-\1_police_jump_0
+\1_jump_0
     dc.l    0
     incbin  "police_jump_0.bin"
     dc.l    0
-\1_police_jump_1
+\1_jump_1
     dc.l    0
     incbin  "police_jump_1.bin"
     dc.l    0
-\1_police_fall_0
+\1_fall_0
     dc.l    0
     incbin  "police_fall_0.bin"
     dc.l    0
-\1_police_fall_1
+\1_fall_1
     dc.l    0
     incbin  "police_fall_1.bin"
     dc.l    0
-\1_police_fall_2
+\1_fall_2
     dc.l    0
     incbin  "police_fall_2.bin"
     dc.l    0
-\1_police_fall_3
+\1_fall_3
     dc.l    0
     incbin  "police_fall_3.bin"
     dc.l    0
@@ -5151,16 +5193,94 @@ DECL_GHOST:MACRO
 
     ENDM
         
-    DECL_GHOST  police1
-    DECL_GHOST  police2
-    DECL_GHOST  police3
-    DECL_GHOST  police4
-    DECL_GHOST  police5
-    DECL_GHOST  police6
-    DECL_GHOST  police7
+    DECL_POLICE  police1
+    DECL_POLICE  police2
+    DECL_POLICE  police3
+    DECL_POLICE  police4
+    DECL_POLICE  police5
+    DECL_POLICE  police6
+    DECL_POLICE  police7
 
-; special sprites for intermissions
 
+
+    
+DECL_CATTLE:MACRO
+\1_frame_table:
+    dc.l    \1_0
+    dc.l    \1_1
+    dc.l    \1_0
+    dc.l    \1_1
+\1_end_frame_table:
+\1_jump_frame_table:
+    dc.l    \1_jump_0
+    dc.l    \1_jump_1
+\1_jump_end_frame_table:
+\1_hang_frame_table:
+    dc.l    \1_hang_0
+    dc.l    \1_hang_1
+\1_hang_end_frame_table:
+\1_fall_frame_table:
+    dc.l    \1_fall_0
+    dc.l    \1_fall_1
+    dc.l    \1_fall_2
+    dc.l    \1_fall_3
+\1_fall_end_frame_table:
+
+    
+    ; all enemies share the same graphics, only the colors are different
+    ; but we need to replicate the graphics 8*4 times because of sprite control word
+\1_0
+    dc.l    0
+    incbin  "cattle_0.bin"
+    dc.l    0
+\1_1
+    dc.l    0
+    incbin  "cattle_1.bin"
+    dc.l    0
+\1_hang_0
+    dc.l    0
+    incbin  "cattle_hang_0.bin"
+    dc.l    0
+\1_hang_1
+    dc.l    0
+    incbin  "cattle_hang_1.bin"
+    dc.l    0
+\1_jump_0
+    dc.l    0
+    incbin  "cattle_jump_0.bin"
+    dc.l    0
+\1_jump_1
+    dc.l    0
+    incbin  "cattle_jump_1.bin"
+    dc.l    0
+\1_fall_0
+    dc.l    0
+    incbin  "cattle_fall_0.bin"
+    dc.l    0
+\1_fall_1
+    dc.l    0
+    incbin  "cattle_fall_1.bin"
+    dc.l    0
+\1_fall_2
+    dc.l    0
+    incbin  "cattle_fall_2.bin"
+    dc.l    0
+\1_fall_3
+    dc.l    0
+    incbin  "cattle_fall_3.bin"
+    dc.l    0
+
+
+    ENDM
+        
+    DECL_CATTLE  cattle1
+    DECL_CATTLE  cattle2
+    DECL_CATTLE  cattle3
+    DECL_CATTLE  cattle4
+    DECL_CATTLE  cattle5
+    DECL_CATTLE  cattle6
+    DECL_CATTLE  cattle7
+    
 score_200:
     dc.l    0
     incbin  "scores_200.bin"      ; 64 bytes each, palette from pink sprite

@@ -31,17 +31,10 @@
    "start_y":8
  },
  {
-   "name":"pts",
-   "frames":3,
+   "name":"heart",
+   "frames":1,
    "start_x":104,
    "start_y":8
- },
- {
-   "name":"namco",
-   "frames":1,
-   "start_x":0,
-   "start_y":24,
-   "width":64
  }
  ]
 }

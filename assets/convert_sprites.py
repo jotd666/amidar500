@@ -256,17 +256,30 @@ game_palette_level_1 = """
 
 game_palette_level_1_sprites = """
     ; sprites
-    dc.w    $000,$0F0,$F91,$FF0     ; guard
-    dc.w    $000,$0F0,$F91,$FF0     ; guard
-    dc.w    $000,$0F0,$F91,$FF0     ; guard
-    dc.w    $000,$00ff,$0fff,$0f00  ; master guard
+    {0}
+    {0}
+    {0}
+    dc.w    $000,$00ff,$0fff,$0f00  ; thief guard
 
-"""
+""".format("dc.w    $000,$0F0,$F91,$FF0     ; guard")
+
+game_palette_level_2_sprites = """
+    ; sprites
+    {0}
+    {0}
+    {0}
+    dc.w    $000,$00ff,$0fff,$0f00  ; thief cattle
+
+""".format("dc.w    $000,$F7F,$FFF,$F00     ; cattle")
 
 game_palette_txt = game_palette_level_1+game_palette_level_1_sprites
 game_palette = bitplanelib.palette_dcw2palette(game_palette_txt)
 bitplanelib.palette_dump(game_palette,r"../src/palette.s",as_copperlist=False)
 game_palette_16 = game_palette[0:16]
+
+alt_sprite_palette = bitplanelib.palette_dcw2palette(game_palette_level_2_sprites)
+bitplanelib.palette_dump(alt_sprite_palette,r"../src/alt_palette.s",as_copperlist=False)
+
 
 outdir = "dumps"
 
@@ -289,9 +302,6 @@ def process_tiles():
     name_dict = {"scores_{}".format(i):"scores_"+n for i,n in enumerate(["200","400","800","1600","3200"])}
     # we first did that to get the palette but we need to control
     # the order of the palette
-
-
-
 
 
     for object in tiles["objects"]:
@@ -441,8 +451,8 @@ process_intro_maze()
 
 process_bonus_mazes()
 
-#process_maze()
+process_maze()
 
-#process_tiles()
+process_tiles()
 
-#process_fonts()
+process_fonts()

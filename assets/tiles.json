@@ -38,7 +38,6 @@
  {
       "generate_mask":true,
   "name":"rustler_up",
-  "sprite_number":6,
    "frames":2,
    "start_x":0,
    "start_y":64
@@ -53,7 +52,6 @@
  {
       "generate_mask":true,
   "name":"rustler_down",
- "sprite_number":6,
     "frames":2,
    "start_x":64,
    "start_y":64
@@ -62,7 +60,6 @@
 {
       "generate_mask":true,
   "name":"rustler_right",
- "sprite_number":6,
      "frames":2,
    "start_x":96,
    "start_y":64
@@ -70,11 +67,20 @@
 {
       "generate_mask":true,
   "name":"rustler_dead",
-  "sprite_number":6,
     "frames":3,
    "start_x":128,
    "start_y":64
  },
+
+{
+      "generate_mask":true,
+  "name":"rustler_right_sprite",
+ "sprite_number":6,
+     "frames":2,
+   "start_x":96,
+   "start_y":64
+ },
+ 
 {
    "name":"police",
    "sprite_number":0,
@@ -102,6 +108,39 @@
     "frames":4,
    "start_x":128,
    "start_y":16
+ },
+ 
+ {
+   "name":"cattle",
+   "sprite_number":0,
+   "sprite_palette":[[0,0,0],[240,112,240],[240,240,240],[240,0,0]],
+    "frames":2,
+   "start_x":0,
+   "start_y":80
+ },
+{
+   "name":"cattle_jump",
+   "sprite_number":0,
+   "sprite_palette":[[0,0,0],[240,112,240],[240,240,240],[240,0,0]],
+    "frames":2,
+   "start_x":32,
+   "start_y":80
+ },
+{
+   "name":"cattle_hang",
+   "sprite_number":0,
+    "sprite_palette":[[0,0,0],[240,112,240],[240,240,240],[240,0,0]],
+   "frames":2,
+   "start_x":64,
+   "start_y":80
+ },
+{
+   "name":"cattle_fall",
+   "sprite_number":0,
+   "sprite_palette":[[0,0,0],[240,112,240],[240,240,240],[240,0,0]],
+    "frames":4,
+   "start_x":96,
+   "start_y":80
  },
 {
    "name":"scores",
