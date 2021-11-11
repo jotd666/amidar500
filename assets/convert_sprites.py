@@ -8,6 +8,56 @@ square_scores = [x//10 for x in [500,350,300,250,280,150,100,450,400,450,280,230
 700,450,280,230,200,150,100,450,400,330,250,280,230,150,300,
 500,300,330,250,230,180,150,100]]
 
+def process_alt_maze(name,nb_rows):
+    img = Image.open("{}_maze.png".format(name))
+
+    # now the big time saver: detect maze walls & dots from MAME screenshots
+
+    rect_id = 0
+
+    NB_H_TILES = 26
+    dot_matrix = [[0]*NB_H_TILES for _ in range(nb_rows)]
+    rows = []
+
+    for i,x in enumerate(range(8,208,40)):
+        row = []
+        for j,y in enumerate(range(4,nb_rows*8,8)):
+            ii = i*5
+            dot_matrix[j][ii] = 1
+            dot_matrix[j][-1] = 1
+            # if not black then there's an horizontal segment here
+            p = img.getpixel((x+4,y+3))  # this image is palletized: contains black (0) and green (1)
+            if p:
+                dot_matrix[j][ii:ii+6] = [1]*6
+                row.append(j)
+        rows.append(row)
+
+
+
+
+
+    with open("../src/intro_maze_data.s","w")as fw:
+
+        fw.write("maze_{}_vertical_table:\n".format(name))
+        for row in rows:
+            fw.write("\tdc.b\t")
+            fw.write(",".join(str(x) for x in row))
+            fw.write(",-1\n")
+        fw.write("\tdc.b\t-2\n\teven\n\n")
+
+
+
+        fw.write("\nmaze_{}_wall_table:\n".format(name))
+        # binary table with all walkable tiles set to 1
+        for row in dot_matrix:
+            fw.write("\tdc.b\t")
+            fw.write(",".join(str(x) for x in row))
+            fw.write("\n")
+
+def process_intro_maze():
+    process_alt_maze("intro",14)
+
+
 def process_maze():
     maze = Image.open("level1.png")
 
@@ -375,8 +425,9 @@ def process_fonts(dump=False):
             namei = "{}_{}".format(name,i) if nb_frames != 1 else name
             bitplanelib.palette_image2raw(img,"../{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,palette_precision_mask=0xF0)
 
-process_maze()
+process_intro_maze()
+#process_maze()
 
-process_tiles()
+#process_tiles()
 
-process_fonts()
+#process_fonts()

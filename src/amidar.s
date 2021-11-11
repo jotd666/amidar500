@@ -1424,13 +1424,24 @@ GHOST_TEXT_X = WHITE_TEXT_X+16
 GHOST_TEXT_Y = WHITE_TEXT_Y+24
 
 draw_intro_screen
+    LOGPC   100
     tst.w   state_timer
     bne.b   .no_first
 
+    lea    .play(pc),a0
+    move.w  #96,d0
+    move.w  #48-24,d1
+    move.w  #$0f0,d2
+    bsr write_color_string    
     lea    .title(pc),a0
-    move.w  #80,d0
-    move.w  #56,d1
-    move.w  #$0fb5,d2
+    move.w  #64,d0
+    move.w  #72-24,d1
+    move.w  #$0ff0,d2
+    bsr write_color_string    
+    lea    .copyright(pc),a0
+    move.w  #64,d0
+    move.w  #222-24,d1
+    move.w  #$0fff,d2
     bsr write_color_string    
 
     
@@ -1442,12 +1453,12 @@ draw_intro_screen
     
     rts
     
-.previous_ghost_color
-    dc.w    0
-.latest_text_message
-    dc.w    0
+.play
+    dc.b    'PLAY',0
 .title
-    dc.b    'AMIDAR',0
+    dc.b    '-  AMIDAR  -',0
+.copyright
+    dc.b    'c KONAMI  1982',0
 
     even
     
