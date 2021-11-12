@@ -896,7 +896,8 @@ init_player
 
     
     lea player(pc),a0
-    move.l  #maze_1_wall_table,maze_wall_table
+
+    move.l  #maze_1_wall_table,maze_wall_table      ; temp depends on level
     move.l  #'COPI',character_id(a0)
     move.w  #NB_TILES_PER_LINE*4,xpos(a0)
 	move.w	#Y_MAX,ypos(a0)
@@ -1511,7 +1512,7 @@ draw_intro_screen
     addq.w  #2,d0       ; compensate
 .do_display
     move.w  ypos(a0),d1
-    addq.w  #3,d1   ; compensate
+    add.w  #68+3,d1   ; compensate + add offset so logic coords match intro maze
     ; center => top left
     bsr store_sprite_pos
 
@@ -2634,26 +2635,31 @@ update_intro_screen
     lea enemies+Enemy_SIZEOF(pc),a0
 
     move.w  #120,xpos(a0)
-    move.w  #84-24,ypos(a0)
-    move.w  #LEFT,direction(a0)
-
+    move.w  #-8,ypos(a0)     ; this is the logical coordinate
+    move.l  #maze_intro_wall_table,maze_wall_table
+    move.w  #DOWN,direction(a0)
+    move.l  #$FFFF0001,h_speed(a0)
 .no_first
-    add.l   #1,state_timer
-
+    move.l  state_timer(pc),d0
+    add.l   #1,D0
+    move.l  d0,state_timer
+    
+    cmp.l   #ORIGINAL_TICKS_PER_SEC,d0
+    bcs.b   .no_animate
+    
     lea enemies+Enemy_SIZEOF(pc),a4
 
     ; animate enemies
 
     bsr animate_enemy
-    
-    cmp.w   #LEFT,direction(a4)
-    bne.b   .up
-    ;sub.w   #1,xpos(a4)
-.up
-    move.w  ypos(a4),d0
-    sub.w   #1,d0
-    ;move.w  d0,ypos(a4)
+    tst.w   ypos(a4)
+    bmi.b   .down
+    bsr move_normal
 
+.no_animate
+    rts
+.down
+    addq.w  #1,ypos(a4)
     rts
 .demo
     ; change state
@@ -2733,7 +2739,8 @@ move_jump
     add.w   d2,ypos(a4)
     rts
     
-    
+; < a4: enemy structure
+; trashes: most registers
 ; todo: loop according to instant speed, ATM speed=1
 move_normal
     bsr animate_enemy
@@ -2808,6 +2815,7 @@ move_normal
     
     rts
 
+; try to move horizontally
 enemy_try_horizontal
     move.w  d3,d1
     ; don't try if not aligned y-wise
