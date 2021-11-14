@@ -1433,20 +1433,20 @@ draw_start_screen
     even
     
     
-WHITE_TEXT_X = 80
-WHITE_TEXT_Y = 104
-GHOST_TEXT_X = WHITE_TEXT_X+16
-GHOST_TEXT_Y = WHITE_TEXT_Y+24
+INTRO_Y_SHIFT=68
 
 draw_intro_screen
-    move.l  state_timer(pc),d0
-    tst.l   d0
+    tst.b   intro_state_change
+    beq.b   .no_change
+    clr.b   intro_state_change
+    move.b  intro_step(pc),d0
+    cmp.b   #1,d0
     beq.b   .init1
-    cmp.l   #ORIGINAL_TICKS_PER_SEC*10,d0
+    cmp.b   #2,d0
     beq.b   .init2
-    cmp.l   #ORIGINAL_TICKS_PER_SEC*20,d0
+    cmp.b   #3,d0
     beq.b   .init3
-    bra.b   .no_first
+    bra.b   .no_change  ; should not be reached
 .init1    
     bsr hide_sprites
     
@@ -1503,8 +1503,11 @@ draw_intro_screen
     ; characters
     rts
     
-.no_first
+.no_change
     ; just draw single cattle
+    move.b  intro_step(pc),d0
+    cmp.b   #1,d0
+    bne.b   .no_part1
 
     lea enemies+Enemy_SIZEOF(pc),a0
     
@@ -1512,7 +1515,7 @@ draw_intro_screen
     addq.w  #2,d0       ; compensate
 .do_display
     move.w  ypos(a0),d1
-    add.w  #68+3,d1   ; compensate + add offset so logic coords match intro maze
+    add.w  #INTRO_Y_SHIFT+3,d1   ; compensate + add offset so logic coords match intro maze
     ; center => top left
     bsr store_sprite_pos
 
@@ -1530,7 +1533,30 @@ draw_intro_screen
     move.l  copperlist_address(a0),a1
     move.w  d2,(6,a1)
     swap    d2
-    move.w  d2,(2,a1)    
+    move.w  d2,(2,a1)  
+    
+    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
+    lea screen_data,a1
+    move.w  xpos(a0),d0
+    move.w  ypos(a0),d1
+    add.w   #INTRO_Y_SHIFT+8,d1
+    ADD_XY_TO_A1    a2
+    lea (SCREEN_PLANE_SIZE,a1),a2
+    cmp.w   #LEFT,direction(a0)
+    beq.b   .skipleft
+    move.b  (a1),(a2)
+    move.b  (NB_BYTES_PER_LINE,a1),(NB_BYTES_PER_LINE,a2)
+.skipleft
+    move.b  (1,a1),(1,a2)
+    move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
+
+    rts
+.no_part1
+    ; nothing to animate in part 2 (highscores)
+    cmp.b   #3,d0
+    bne.b   .no_part3
+    
+.no_part3
     rts
     
 .play
@@ -1583,7 +1609,12 @@ high_score
     dc.l    1000
     ENDR
     
-
+intro_step
+    dc.b    0
+intro_state_change
+    dc.b    0
+    even
+    
 draw_title
     lea    .title(pc),a0
     move.w  #64,d0
@@ -2019,6 +2050,7 @@ draw_intro_maze:
     lea _custom+color,a0
     
     move.w  #$0F0,(2,a0)  ; green outline
+    move.w  #$FF0,(6,a0)  ; painted outline
 ;	move.w  (a1)+,d0
 ;    move.w  d0,(4,a0)  ; dots 
 ;    move.w  d0,(6,a0)  ; dots+outline
@@ -2626,9 +2658,12 @@ a_ghost_was_eaten:
     ; exits as soon as a collision is found
     rts
 update_intro_screen
-    tst.l   state_timer
+    move.l   state_timer(pc),d0
     bne.b   .no_first
     
+    move.b  #1,intro_step
+    st.b    intro_state_change
+
     st.b    bonus_sprites
     moveq.l #0,d0
     bsr init_enemies
@@ -2639,27 +2674,51 @@ update_intro_screen
     move.l  #maze_intro_wall_table,maze_wall_table
     move.w  #DOWN,direction(a0)
     move.l  #$FFFF0001,h_speed(a0)
-.no_first
+    bra.b   .cont
+.no_first 
+    cmp.l   #ORIGINAL_TICKS_PER_SEC*9,d0
+    bne.b   .no_second
+    move.b  #2,intro_step
+    st.b    intro_state_change
+    bra.b   .cont
+.no_second
+    cmp.l   #ORIGINAL_TICKS_PER_SEC*12,d0
+    bne.b   .cont
+    ; third screen init
+    st.b    intro_state_change
+    move.b  #3,intro_step
+.cont    
     move.l  state_timer(pc),d0
     add.l   #1,D0
     move.l  d0,state_timer
     
     cmp.l   #ORIGINAL_TICKS_PER_SEC,d0
     bcs.b   .no_animate
+    cmp.l   #ORIGINAL_TICKS_PER_SEC*8,d0
+    bcc.b   .no_animate
     
     lea enemies+Enemy_SIZEOF(pc),a4
 
-    ; animate enemies
-
-    bsr animate_enemy
-    tst.w   ypos(a4)
-    bmi.b   .down
-    bsr move_normal
-
+    move.w  ypos(a4),d0
+    bmi.b   .down   ; not in the maze yet²
+    cmp.w   #116,d0
+    beq.b   .out
+    cmp.w   #108,d0
+    bcc.b   .down   ; out of the maze
+    bra move_normal
 .no_animate
     rts
+.horiz
+    move.w  #$F00,$DFF180
+    addq.w  #1,xpos(a4)
+    rts
 .down
+    bsr animate_enemy
     addq.w  #1,ypos(a4)
+    rts
+
+    
+.out
     rts
 .demo
     ; change state

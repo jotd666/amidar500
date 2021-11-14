@@ -8,7 +8,9 @@ square_scores = [x//10 for x in [500,350,300,250,280,150,100,450,400,450,280,230
 700,450,280,230,200,150,100,450,400,330,250,280,230,150,300,
 500,300,330,250,230,180,150,100]]
 
-def process_alt_maze(name,nb_rows,fw,reframe=False):
+NB_H_TILES = 26
+
+def process_alt_maze(name,nb_rows,fw,reframe=False,extra_rows=[]):
     img = Image.open("{}_maze.png".format(name))
     if reframe:
         maze = img
@@ -19,7 +21,6 @@ def process_alt_maze(name,nb_rows,fw,reframe=False):
 
     rect_id = 0
 
-    NB_H_TILES = 26
     dot_matrix = [[0]*NB_H_TILES for _ in range(nb_rows)]
     rows = []
 
@@ -36,7 +37,7 @@ def process_alt_maze(name,nb_rows,fw,reframe=False):
                 row.append(j)
         rows.append(row)
 
-
+    dot_matrix.extend(extra_rows)
 
     wname = "maze_{}_wall_table".format(name)
     fw.write("\n{}:\n".format(wname))
@@ -58,7 +59,9 @@ def process_alt_maze(name,nb_rows,fw,reframe=False):
 
 def process_intro_maze():
     with open("../src/intro_maze_data.s","w") as fw:
-        process_alt_maze("intro",14,fw)
+        er = [0]*NB_H_TILES
+        er[10] = 1
+        process_alt_maze("intro",14,fw,extra_rows=[er])
 
 def process_bonus_mazes():
     with open("../src/bonus_maze_data.s","w") as fw:
