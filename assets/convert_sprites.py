@@ -271,7 +271,7 @@ game_palette_level_2_sprites = """
     {0}
     {0}
     {0}
-    dc.w    $000,$00ff,$0fff,$0f00  ; thief cattle
+    dc.w    $000,$0fff,$00ff,$0f00  ; thief cattle
 
 """.format("dc.w    $000,$F7F,$FFF,$F00     ; cattle")
 

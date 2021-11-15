@@ -1434,6 +1434,7 @@ draw_start_screen
     
     
 INTRO_Y_SHIFT=68
+ENEMY_Y_SPACING = 24
 
 draw_intro_screen
     tst.b   intro_state_change
@@ -1501,7 +1502,34 @@ draw_intro_screen
     
 .init3
     ; characters
-    rts
+    move.w  #56,d0
+    move.w  #56-24,d1
+    lea     .characters(pc),a0
+    move.w  #$0F0,d2
+    bsr write_color_string
+    bsr hide_sprites
+
+    ; not the same configuration as game sprites:
+    ; each sprite is there simultaneously
+
+    lea game_palette+32(pc),a0  ; the sprite part of the color palette 16-31    
+    moveq.w #0,d0
+    ; first sprite palette
+    bsr .load_palette
+
+    moveq.w #6,d0
+    ; thief guard sprite palette
+    bsr .load_palette
+
+    lea alt_sprite_palette+8(pc),a0  ; we cheat, use sprite 4 with palette of 6-7
+    ; thief guard sprite palette
+    moveq.w #4,d0
+    bsr .load_palette
+    
+    bra draw_copyright
+    
+
+    ;;move.l  a3,a0
     
 .no_change
     ; just draw single cattle
@@ -1555,10 +1583,105 @@ draw_intro_screen
     ; nothing to animate in part 2 (highscores)
     cmp.b   #3,d0
     bne.b   .no_part3
+    ; blit characters
+    move.w  #56,d3
+    move.w  #72-24,d4
+    move.w  d3,d0
+    move.w  d4,d1
+    lea copier_anim_right,a0
+    move.w  #$F,d2
+    bsr .draw_bob
+
+    add.w   #ENEMY_Y_SPACING,d4
+    move.w  d4,d1
+    add.w   #3,d1
+    lea police1_frame_table,a0
+    lea intro_green_police,a1
+    move.w  #3,d2   ; 4 frames
+    bsr .load_sprite
+    
+    move.w  d3,d0
+    add.w   #ENEMY_Y_SPACING,d4
+    move.w  d4,d1
+    add.w   #3,d1
+    lea police2_frame_table,a0
+    lea thief_sprite,a1
+    move.w  #3,d2   ; 4 frames
+    bsr .load_sprite
+    
+    move.w  d3,d0
+    add.w   #ENEMY_Y_SPACING,d4
+    move.w  d4,d1
+    
+    lea rustler_anim_right,a0
+    move.w  #$F,d2
+    bsr .draw_bob
+    
+    move.w  d3,d0
+    add.w   #ENEMY_Y_SPACING,d4
+    move.w  d4,d1
+    add.w   #3,d1
+    lea cattle1_frame_table,a0
+    lea intro_cattle_pink,a1
+    move.w  #1,d2
+    bsr .load_sprite
+    
+    move.w  d3,d0
+    add.w   #ENEMY_Y_SPACING,d4
+    move.w  d4,d1
+    add.w   #3,d1
+    lea cattle2_frame_table,a0
+    lea intro_cyan_cattle,a1
+    move.w  #1,d2
+    bsr .load_sprite
+    
+    rts
     
 .no_part3
     rts
+.draw_bob
+    move.w intro_frame_index(pc),d6
+    and.w   d2,d6
+    add.w   d6,d6
+    add.w   d6,d6
+    move.l  (a0,d6.w),a0
     
+    bsr blit_4_planes
+    rts
+    
+.load_sprite
+    bsr .get_frame
+    move.l  a0,d2
+    move.w  d2,(6,a1)
+    swap    d2
+    move.w  d2,(2,a1)
+    bsr store_sprite_pos
+    move.l  d0,(a0)
+    
+    rts
+.get_frame
+    move.w intro_frame_index(pc),d6
+    lsr.w   #3,d6
+    and.w   d2,d6
+    add.w   d6,d6
+    add.w   d6,d6
+    move.l  (a0,d6.w),a0
+    rts
+    
+.load_palette
+    lea _custom+color+32,a1
+    lsr.w   #1,d0
+    lsl.w   #3,d0
+    add.w   d0,a1
+
+    move.l  (a0,d0.w),(a1)+
+    move.l  (4,a0,d0.w),(a1)
+    rts
+    
+.toggle
+    dc.b    0
+.characters
+    dc.b    "-  CHARACTER  -",0
 .play
     dc.b    'PLAY',0
 .pts
@@ -1608,7 +1731,9 @@ high_score
     REPT    10
     dc.l    1000
     ENDR
-    
+
+intro_frame_index
+    dc.w    0
 intro_step
     dc.b    0
 intro_state_change
@@ -2661,7 +2786,7 @@ update_intro_screen
     move.l   state_timer(pc),d0
     bne.b   .no_first
     
-    move.b  #1,intro_step
+    move.b  #3,intro_step
     st.b    intro_state_change
 
     st.b    bonus_sprites
@@ -2687,10 +2812,16 @@ update_intro_screen
     ; third screen init
     st.b    intro_state_change
     move.b  #3,intro_step
+    clr.w   intro_frame_index
 .cont    
     move.l  state_timer(pc),d0
     add.l   #1,D0
     move.l  d0,state_timer
+    
+    cmp.b   #2,intro_step
+    beq.b   .step2
+    cmp.b   #3,intro_step
+    beq.b   .step3
     
     cmp.l   #ORIGINAL_TICKS_PER_SEC,d0
     bcs.b   .no_animate
@@ -2709,14 +2840,18 @@ update_intro_screen
 .no_animate
     rts
 .horiz
-    move.w  #$F00,$DFF180
     addq.w  #1,xpos(a4)
     rts
 .down
     bsr animate_enemy
     addq.w  #1,ypos(a4)
     rts
-
+.step2
+    rts
+.step3
+    add.w   #1,intro_frame_index
+    rts
+    
     
 .out
     rts
@@ -4712,8 +4847,8 @@ copier_anim_\1_end
     
 RUSTLER_ANIM_TABLE:MACRO
 rustler_anim_\1
-    dc.l    rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0
-    dc.l    rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1
+    dc.l    rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0,rustler_\1_0
+    dc.l    rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1,rustler_\1_1
 rustler_anim_\1_end
     ENDM
     
@@ -5069,28 +5204,32 @@ colors:
    dc.w color,0     ; fix black (so debug can flash color0)
 sprites:
 enemy_sprites:
-    ; #1
+intro_green_police:
+    ; #0
     dc.w    sprpt+0,0
     dc.w    sprpt+2,0
-    ; #2
+    ; #1
     dc.w    sprpt+4,0
     dc.w    sprpt+6,0
-    ; #3
+intro_cattle_pink:
+    ; #2
     dc.w    sprpt+8,0
     dc.w    sprpt+10,0
-    ; #4
+    ; #3
     dc.w    sprpt+12,0
     dc.w    sprpt+14,0
-    ; #5
+intro_cyan_cattle:    
+    ; #4
     dc.w    sprpt+16,0
     dc.w    sprpt+18,0
-    ; #6
+    ; #5
     dc.w    sprpt+20,0
     dc.w    sprpt+22,0
-    ; #7
+    ; #6
 thief_sprite:
     dc.w    sprpt+24,0
     dc.w    sprpt+26,0
+    ; #7
 score_sprite_entry:     ; can use since there's white in thief sprite
     dc.w    sprpt+28,0
     dc.w    sprpt+30,0

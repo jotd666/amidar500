@@ -161,6 +161,7 @@
    "start_x":80,
    "start_y":128
  },
+ 
 {
       "blit_pad":false,
    "name":"star",
