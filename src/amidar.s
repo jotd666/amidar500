@@ -1449,6 +1449,7 @@ draw_intro_screen
     beq.b   .init3
     bra.b   .no_change  ; should not be reached
 .init1    
+    bsr clear_screen
     bsr hide_sprites
     
     bsr draw_intro_maze
@@ -1501,6 +1502,7 @@ draw_intro_screen
     bra draw_copyright
     
 .init3
+    bsr clear_screen
     ; characters
     move.w  #56,d0
     move.w  #56-24,d1
@@ -1635,6 +1637,18 @@ draw_intro_screen
     move.w  #1,d2
     bsr .load_sprite
     
+    lea draw_char_command(pc),a1
+    tst.b   (5,a1)
+    beq.b   .nothing_to_print
+
+    lea .onechar(pc),a0
+    move.w  (a1)+,d0
+    move.w  (a1)+,d1
+    move.b  (a1)+,(a0)
+    clr.b   (a1)    ; ack
+    move.w  #$FF,d2
+    bsr write_color_string
+.nothing_to_print
     rts
     
 .no_part3
@@ -1677,7 +1691,25 @@ draw_intro_screen
     move.l  (a0,d0.w),(a1)+
     move.l  (4,a0,d0.w),(a1)
     rts
+
+
+.color_table
+    dc.w    $0FF,$0FF,$FFF,$FFF,$FF0,$FF0,$0F0,$0F0,$F00,$F00
+.pos_table  
+    dc.l    .pos1
+    dc.l    .pos2
+    dc.l    .pos3
+    dc.l    .pos4
+    dc.l    .pos5
+    dc.l    .pos6
+    dc.l    .pos7
+    dc.l    .pos8
+    dc.l    .pos9
+    dc.l    .pos10
     
+
+.onechar
+    dc.b    0,0
 .toggle
     dc.b    0
 .characters
@@ -1707,31 +1739,21 @@ draw_intro_screen
     dc.b    "9TH",0
 .pos10
     dc.b    "10TH",0
+    
 .score_ranking
     dc.b    "- SCORE RANKING -",0
     even
-.color_table
-    dc.w    $0FF,$0FF,$FFF,$FFF,$FF0,$FF0,$0F0,$0F0,$F00,$F00
-.pos_table  
-    dc.l    .pos1
-    dc.l    .pos2
-    dc.l    .pos3
-    dc.l    .pos4
-    dc.l    .pos5
-    dc.l    .pos6
-    dc.l    .pos7
-    dc.l    .pos8
-    dc.l    .pos9
-    dc.l    .pos10
-    even
     
-
 hiscore_table:
 high_score
     REPT    10
     dc.l    1000
     ENDR
 
+draw_char_command
+    dc.w    0,0 ; X,Y
+    dc.b    0   ; char
+    dc.b    0   ; command set (0: no, $FF: yes)
 intro_frame_index
     dc.w    0
 intro_step
@@ -2782,11 +2804,15 @@ a_ghost_was_eaten:
     
     ; exits as soon as a collision is found
     rts
+    
+CHARACTER_X_START = 88
+
 update_intro_screen
     move.l   state_timer(pc),d0
     bne.b   .no_first
     
-    move.b  #3,intro_step
+.first
+    move.b  #1,intro_step
     st.b    intro_state_change
 
     st.b    bonus_sprites
@@ -2809,13 +2835,29 @@ update_intro_screen
 .no_second
     cmp.l   #ORIGINAL_TICKS_PER_SEC*12,d0
     bne.b   .cont
+.third
     ; third screen init
     st.b    intro_state_change
     move.b  #3,intro_step
     clr.w   intro_frame_index
+
+    move.w  #ORIGINAL_TICKS_PER_SEC,.cct_countdown
+    move.w  #CHARACTER_X_START,.cct_x
+    move.w  #80-24,.cct_y
+
+    clr.w   .cct_text_index
+    move.w   #6,.cct_counter
+    clr.w   .cct_char_index
+   
 .cont    
     move.l  state_timer(pc),d0
     add.l   #1,D0
+    cmp.l   #ORIGINAL_TICKS_PER_SEC*22,d0
+    bne.b   .no3end
+    ; screen 3 end => demo mode TODO
+    clr.l   state_timer
+    bra.b   .first
+.no3end
     move.l  d0,state_timer
     
     cmp.b   #2,intro_step
@@ -2850,8 +2892,45 @@ update_intro_screen
     rts
 .step3
     add.w   #1,intro_frame_index
+    move.w  .cct_countdown(pc),d0
+    beq.b   .text_print
+    subq.w  #1,d0
+    move.w  d0,.cct_countdown
+    rts
+.text_print
+    cmp.w   #24,.cct_text_index
+    beq.b   .no_text        ; stop printing
+    
+    subq.w  #1,.cct_counter
+    bne.b   .no_text
+    ; reload
+    move.w  #6,.cct_counter
+    ; print a character
+    move.w  .cct_text_index(pc),d0
+    lea .text_table(pc),a0
+    move.l  (a0,d0.w),a0        ; current text
+    move.w  .cct_char_index(pc),d1
+    add.w   d1,a0   ; current text char
+    move.b  (a0),d2
+    beq.b   .next_text
+    
+    lea draw_char_command(pc),a1
+    move.l  .cct_x(pc),(a1)+    ; X & Y
+    move.b  d2,(a1)+
+    st.b    (a1)    ; enable
+    add.w   #8,.cct_x
+    add.w   #1,d1
+    move.w  d1,.cct_char_index
     rts
     
+.next_text
+    addq.w  #4,.cct_text_index    
+    add.w   #24,.cct_y
+    move.w  #CHARACTER_X_START,.cct_x
+    clr.w   .cct_char_index
+    
+.no_text
+    rts
     
 .out
     rts
@@ -2863,13 +2942,36 @@ update_intro_screen
     st.b    demo_mode
     rts
     
-.ghost_to_update
+.cct_countdown
     dc.w    0
-.y_target
+.cct_x:
     dc.w    0
-.anim_ms_pac
+.cct_y:
     dc.w    0
-
+.cct_text_index:
+    dc.w    0
+.cct_counter:
+    dc.w    0
+.cct_char_index
+    dc.w    0
+.text_table
+    dc.l    .text1
+    dc.l    .text2
+    dc.l    .text3
+    dc.l    .text4
+    dc.l    .text5
+    dc.l    .text3
+.text1:
+    dc.b    "hhh  COPIER",0
+.text2:
+    dc.b    "hhh  POLICE",0
+.text3:
+    dc.b    "hhh  THIEF",0
+.text4:
+    dc.b    "hhh  RUSTLER",0
+.text5:
+    dc.b    "hhh  CATTLE",0
+    even
 
     
     
