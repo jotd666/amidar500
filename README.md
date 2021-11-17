@@ -30,10 +30,7 @@ CONTROLS:
 
 ISSUES:
 
-- misses clear dot while going down: store clear addresses in $100...increasing and check!!!
-- no character restore on the upper left corner (plane offset/sign issue?)
 - turn correction not perfect, sometimes character blocks
-- copy copper init from mspacman
 - level 1: thief almost 8 loops: attacks
 - level 2: thief almost 7 loops: attacks
 - so on...

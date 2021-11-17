@@ -361,7 +361,7 @@ intro:
     
     bsr draw_score
 
-    clr.w  state_timer
+    clr.l  state_timer
     clr.w  vbl_counter
 
    
@@ -387,7 +387,7 @@ intro:
 .out_intro    
 
 
-    clr.w   state_timer
+    clr.l   state_timer
     move.w  #STATE_GAME_START_SCREEN,current_state
     
 .release
@@ -489,7 +489,7 @@ intro:
     beq.b   .no_demo
     ; lose one life in demo mode: return to intro
     move.w  #STATE_GAME_OVER,current_state
-    move.w  #1,state_timer
+    move.l  #1,state_timer
     bra.b   .game_over
 .no_demo
     ; life lost, make next start a little easier by
@@ -509,7 +509,7 @@ intro:
     bsr     save_highscores
 .no_save
     ; 3 seconds
-    move.w  #ORIGINAL_TICKS_PER_SEC*3,state_timer
+    move.l  #ORIGINAL_TICKS_PER_SEC*3,state_timer
     move.w  #STATE_GAME_OVER,current_state
     bra.b   .game_over
 .out      
@@ -602,6 +602,8 @@ clear_playfield_plane
     rts
     
 init_new_play:
+    clr.l   state_timer
+
     ; global init at game start
     move.l  #demo_moves,record_data_pointer
     clr.l   replayed_input_state
@@ -1229,7 +1231,7 @@ draw_all
     rts
     
 .game_start_screen
-    tst.w   state_timer
+    tst.l   state_timer
     beq.b   draw_start_screen
     rts
     
@@ -2315,7 +2317,7 @@ draw_dot:
     rts
     
 ; < A1 address
-clear_dot
+clear_dot 
     clr.b  (a1)
     clr.b  (NB_BYTES_PER_LINE,a1)
     clr.b  (NB_BYTES_PER_LINE*2,a1)
@@ -2324,7 +2326,8 @@ clear_dot
     clr.b  (NB_BYTES_PER_LINE*5,a1)
     
     rts
-    
+
+        
 init_sound
     ; init phx ptplayer, needs a6 as custom, a0 as vbr (which is zero)
     sub.l   a0,a0
@@ -2462,7 +2465,7 @@ level2_interrupt:
     beq.b   .no_esc
     cmp.w   #STATE_GAME_START_SCREEN,current_state
     beq.b   .no_esc
-    move.w  #ORIGINAL_TICKS_PER_SEC*2,state_timer
+    move.l  #ORIGINAL_TICKS_PER_SEC*2,state_timer
     move.w  #STATE_GAME_OVER,current_state
 .no_esc
     
@@ -2665,9 +2668,9 @@ update_all
     rts
     
 .game_start_screen
-    tst.w   state_timer
+    tst.l   state_timer
     bne.b   .out
-    add.w   #1,state_timer
+    addq.l   #1,state_timer
 .out    
     rts
     
@@ -2691,11 +2694,11 @@ update_all
 .game_over
     bsr stop_sounds
 
-    tst.w   state_timer
+    tst.l   state_timer
     bne.b   .cont
     move.w  #STATE_INTRO_SCREEN,current_state
 .cont
-    subq.w  #1,state_timer
+    subq.l  #1,state_timer
     rts
 .playing
     tst.l   state_timer
@@ -2715,6 +2718,7 @@ update_all
     move.w  .start_music_countdown(pc),d0
     subq.w  #1,d0    ; starts after 2 seconds
     bne.b   .no_start_music
+
     moveq.l #0,d0   ; start!!
     bsr play_music
     move.w  #SONG_1_LENGTH,d0
@@ -3473,9 +3477,13 @@ update_player
     cmp.w   #UP,direction(a4)
     beq.b   .noadd
     cmp.w   #DOWN,direction(a4)
-    beq.b   .noadd
+    beq.b   .add8
     addq.w  #2,d1
+    bra.b   .noadd
+.add8    
+    addq.l  #8,d1
 .noadd
+
     ADD_XY_TO_A1    a0
     
     bsr clear_dot
@@ -3822,7 +3830,10 @@ level_completed:
 ; plane 0 contains the grid, that has been backed up
 ; plane 2 or 3 contains filled up rectangles, needs backing up too TODO
 draw_player:
-    move.l  previous_player_address(pc),d5    
+    move.l  previous_player_address(pc),d5
+    bne.b   .not_first_draw
+    moveq.l #-1,d5
+.not_first_draw
     lea     player(pc),a2
     tst.w  ghost_eaten_timer
     bmi.b   .normal_pacdraw
@@ -3840,7 +3851,7 @@ draw_player:
 .normal
     ; first, restore plane 0
     tst.l   d5    
-    beq.b   .no_erase
+    bmi.b   .no_erase
     ; restore plane 0 using CPU
     lea grid_backup_plane,a0    
     lea screen_data,a1
@@ -3887,8 +3898,8 @@ draw_player:
     
     ; remove previous second plane before blitting the new one
     ; nice as it works in parallel with the first plane blit started above
-    tst.l   d5    
-    beq.b   .no_erase2
+    tst.l   d5
+    bmi.b   .no_erase2
     
     ; restore plane 2
     lea   screen_data+SCREEN_PLANE_SIZE*2,a1
@@ -3914,7 +3925,7 @@ draw_player:
     
     ; delete third plane too
     tst.l   d5    
-    beq.b   .no_erase3
+    bmi.b   .no_erase3
     
     ; clear plane 3
     lea   screen_data+SCREEN_PLANE_SIZE*3,a1
@@ -5667,7 +5678,10 @@ empty_sprite
 
     
     SECTION S_4,BSS,CHIP
-; add small safety in case some blit goes beyond screen
+    ; erase method erases one line above
+    ; and character can be drawn at y=0 so add some memory
+    ; to avoid corrupting memory
+    ds.b    NB_BYTES_PER_LINE*NB_PLANES
 screen_data:
     ds.b    SCREEN_PLANE_SIZE*NB_PLANES+NB_BYTES_PER_LINE,0
 
