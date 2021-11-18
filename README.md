@@ -41,7 +41,6 @@ CREDITS:
 - phx: sfx/module player
 - meynaf: random routine
 - eab forum: useful advice & support
-- Rob Northen: unpacker (http://aminet.net/util/pack/RNC_ProPack.lha)
 - Superjustinbros: sprite rips https://www.spriters-resource.com/arcade/amidar
 - konami: original game :)
 

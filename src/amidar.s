@@ -93,8 +93,11 @@ Execbase  = 4
 ; uncomment to test intermission screen
 ;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
 
-; if set skips intro and start music, game starts almost immediately
-;DIRECT_GAME_START
+; if set skips intro, game starts immediately
+DIRECT_GAME_START
+
+; test bonus screen 
+BONUS_SCREEN_TEST
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -107,6 +110,8 @@ EXTRA_LIFE_SCORE = 30000/10
 EXTRA_LIFE_PERIOD = 70000/10
 
 START_LEVEL = 1
+
+
 
 MODE_NORMAL = 0     ; police/cattle only. normal amidar movement
 MODE_WANDER = 1<<2     ; thief only. thief ventures in the maze
@@ -157,8 +162,6 @@ NB_FLASH_FRAMES = 14
 ; matches the pac kill animation
 PLAYER_KILL_TIMER = NB_TICKS_PER_SEC+NB_TICKS_PER_SEC/2+(NB_TICKS_PER_SEC/8)*9+NB_TICKS_PER_SEC/4+NB_TICKS_PER_SEC
 GHOST_KILL_TIMER = (NB_TICKS_PER_SEC*5)/6
-
-PREPOST_TURN_LOCK = 4
 
 
 ; direction enumerates, follows order of enemies in the sprite sheet
@@ -432,16 +435,28 @@ intro:
 
     bsr wait_bof
     
-    ; do it first, as the last bonus overwrites bottom left of screen
-    ;;bsr draw_bonuses    
     bsr draw_score
+    tst.b   next_level_is_bonus_level
+    beq.b   .normal_level
+
+
+    bsr init_player     ; at least reset 3 stars
+
+    bsr wait_bof
+
+    ;bsr draw_maze
+    bsr draw_lives
+    bsr draw_stars
+    move.w  #STATE_BONUS_SCREEN,current_state
+    move.w #INTERRUPTS_ON_MASK,intena(a5)
     
+    bra.b   .mainloop
+.normal_level    
     ; for debug
     ;;bsr draw_bounds
     
-    bsr init_dots
-
     bsr hide_sprites
+    bsr init_dots
 
     ; enable copper interrupts, mainly
     moveq.l #0,d0
@@ -449,6 +464,7 @@ intro:
 .new_life
     moveq.l #1,d0
 .from_level_start
+    
     bsr init_enemies
     bsr init_player
     
@@ -603,7 +619,12 @@ clear_playfield_plane
     
 init_new_play:
     clr.l   state_timer
-
+    IFD BONUS_SCREEN_TEST
+    move.b  #1,next_level_is_bonus_level
+    ELSE
+    clr.b   next_level_is_bonus_level
+    ENDC
+    
     ; global init at game start
     move.l  #demo_moves,record_data_pointer
     clr.l   replayed_input_state
@@ -1225,10 +1246,13 @@ draw_all
 ; draw intro screen
 .intro_screen
     bra.b   draw_intro_screen
-; draw intro screen
+; draw bonus screen
 .bonus_screen
-    
+    tst.l   state_timer
+    beq.b   draw_bonus_maze
     rts
+    
+
     
 .game_start_screen
     tst.l   state_timer
@@ -2123,50 +2147,14 @@ draw_maze:
     ; vertical edges
     lea screen_data+MAZE_ADDRESS_OFFSET,a1
     move.w  #MAZE_HEIGHT-1,d1
-    move.b  #$60,d0
-.vloop
-    or.b    d0,(a1)
-    or.b    d0,(5,a1)
-    or.b    d0,(10,a1)
-    or.b    d0,(15,a1)
-    or.b    d0,(20,a1)
-    or.b    d0,(NB_BYTES_PER_MAZE_LINE-1,a1)
-    add.w  #NB_BYTES_PER_LINE,a1
-    dbf     d1,.vloop
+    bsr draw_maze_vertical_edges
     
     ; horizontal separations
     lea maze_1_vertical_table(pc),a0
     lea mul40_table(pc),a2
-    moveq   #0,d0
     lea screen_data+MAZE_ADDRESS_OFFSET,a1
-.seploop
-    moveq   #0,d1
-    move.b  (a0)+,d1
-    bpl.b   .cont
-    cmp.b   #-2,d1
-    beq.b   .out
-    add.w   #5,a1
-    bra.b   .seploop
-.cont
-    moveq   #-1,d2
-    move.b  #$7F,d3
-    ; draw horizontal separation
-    lsl.w   #2,d1
-    move.w  (a2,d1.w),d1    ; times40
-    lsl.w   #2,d1           ; times4
-    or.b    d3,(A1,d1)
-    or.b    d2,(1,A1,d1)
-    or.b    d2,(2,A1,d1)
-    or.b    d2,(3,A1,d1)
-    or.b    d2,(4,A1,d1)
-    add.w   #NB_BYTES_PER_LINE,d1
-    or.b    d3,(A1,d1)
-    or.b    d2,(1,A1,d1)
-    or.b    d2,(2,A1,d1)
-    or.b    d2,(3,A1,d1)
-    or.b    d2,(4,A1,d1)
-    bra.b   .seploop
-.out
+    bsr draw_maze_horizontal_lines
+    
     ; backup this plane so we can restore background
     lea grid_backup_plane,a1
     move.l  #SCREEN_PLANE_SIZE/4-1,d0
@@ -2212,11 +2200,58 @@ draw_intro_maze:
     bsr clear_playfield_plane
     add.w   #SCREEN_PLANE_SIZE,a1
     bsr clear_playfield_plane
-    
-    
+        
     ; vertical edges
     lea screen_data+INTRO_MAZE_ADDRESS_OFFSET,a1
     move.w  #INTRO_MAZE_HEIGHT-1,d1
+
+    bsr draw_maze_vertical_edges
+   
+    ; horizontal separations
+    lea maze_intro_vertical_table(pc),a0
+    lea screen_data+INTRO_MAZE_ADDRESS_OFFSET+4*NB_BYTES_PER_LINE,a1
+    bsr draw_maze_horizontal_lines
+    
+    rts    
+
+draw_bonus_maze:
+    bsr wait_blit
+    
+    ; set colors
+    ; the trick with dots is to leave them one plane 1 alone
+    ; when the bits intersect with maze lines, we get the same color
+    ; because the color entry is duplicated
+    ;
+    ; this allows to blit main character on planes 0, 2, 3 without any interaction
+    ; (except very marginal visual color change) on plane 1
+    lea _custom+color,a0
+    
+    move.w  #$F00,(2,a0)  ; green outline
+
+
+    lea screen_data,a1
+    bsr clear_playfield_plane
+    add.w   #SCREEN_PLANE_SIZE*2,a1
+    bsr clear_playfield_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bsr clear_playfield_plane
+        
+    ; vertical edges
+    lea screen_data+MAZE_ADDRESS_OFFSET,a1
+    move.w  #MAZE_HEIGHT-1,d1
+
+    bsr draw_maze_vertical_edges
+   
+    ; horizontal separations
+    move.l  bonus_vertical_table(pc),a0
+    lea screen_data+MAZE_ADDRESS_OFFSET+4*NB_BYTES_PER_LINE,a1
+    bsr draw_maze_horizontal_lines
+    
+    rts    
+
+
+; used for all mazes
+draw_maze_vertical_edges
     move.b  #$60,d0
 .vloop
     or.b    d0,(a1)
@@ -2227,13 +2262,10 @@ draw_intro_maze:
     or.b    d0,(NB_BYTES_PER_MAZE_LINE-1,a1)
     add.w  #NB_BYTES_PER_LINE,a1
     dbf     d1,.vloop
+    rts
     
+draw_maze_horizontal_lines:
     lea mul40_table(pc),a2
-    
-    ; horizontal separations
-    lea maze_intro_vertical_table(pc),a0
-    moveq   #0,d0
-    lea screen_data+INTRO_MAZE_ADDRESS_OFFSET+4*NB_BYTES_PER_LINE,a1
 .seploop
     moveq   #0,d1
     move.b  (a0)+,d1
@@ -2264,11 +2296,7 @@ draw_intro_maze:
     or.b    #$80,(5,A1,d1)
     bra.b   .seploop
 .out
-
-    rts    
-
-
-
+    rts
     
 init_dots:
     ; init dots
@@ -2663,8 +2691,22 @@ update_all
 .intro_screen
     bra update_intro_screen
 .bonus_screen
-
-    ; other levels
+    tst.l   state_timer
+    bne.b   .no_first_bonus_tick
+    ; pick a maze randomly. There are 3 different mazes
+.random_loop
+    bsr random
+    and.w   #$3,d0
+    beq.b   .random_loop    ; 0 ruled out so we get 1,2,3 only
+    subq.w  #1,d0
+    lsl.w   #3,d0   ; times 8
+    lea maze_bonus_table(pc),a0
+    add.w   d0,a0       ; pointers on maze walls
+    move.l  (a0)+,bonus_wall_table
+    move.l  (a0)+,bonus_vertical_table
+    
+.no_first_bonus_tick
+    addq.l  #1,state_timer
     rts
     
 .game_start_screen
@@ -2683,12 +2725,10 @@ update_all
     bsr     stop_sounds
 
     bra.b   .next_level
-
-
     
 .next_level
      move.w  #STATE_NEXT_LEVEL,current_state
-     
+     eor.b  #1,next_level_is_bonus_level
      rts
      
 .game_over
@@ -4827,6 +4867,11 @@ cheat_keys
 death_frame_offset
     dc.w    0
 
+bonus_wall_table
+    dc.l    0
+bonus_vertical_table
+    dc.l    0
+    
 nb_enemies
     dc.w    4
 jump_index
@@ -4840,6 +4885,8 @@ maze_fill_color
 total_number_of_dots:
     dc.b    0
 
+next_level_is_bonus_level
+    dc.b    0
 nb_lives:
     dc.b    0
 bonus_sprites:
@@ -5264,6 +5311,7 @@ enemies:
 keyboard_table:
     ds.b    $100,0
     
+    include "bonus_maze_data.s"       ; generated by "convert_sprites.py" python script
     include "intro_maze_data.s"       ; generated by "convert_sprites.py" python script
     include "maze_data.s"       ; generated by "convert_sprites.py" python script
 
