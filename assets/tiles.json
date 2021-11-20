@@ -157,6 +157,8 @@
  },
 {
    "name":"banana",
+   "sprite_number":2,
+   "sprite_palette":[[0,0,0],[240,240,0],[240,144,16],[0,240,0]],
     "frames":1,
    "start_x":80,
    "start_y":128

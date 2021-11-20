@@ -145,6 +145,7 @@ MAZE_HEIGHT = NB_TILES_PER_LINE*8
 MAZE_ADDRESS_OFFSET = 6*NB_BYTES_PER_LINE+1
 INTRO_MAZE_HEIGHT = 14*8-2
 INTRO_MAZE_ADDRESS_OFFSET = 72*NB_BYTES_PER_LINE+1
+BONUS_MAZE_ADDRESS_OFFSET = 14*NB_BYTES_PER_LINE+1
 
 Y_MAX = MAZE_HEIGHT
 X_MAX = (NB_BYTES_PER_MAZE_LINE-1)*8
@@ -445,8 +446,6 @@ intro:
     bsr wait_bof
 
     ;bsr draw_maze
-    bsr draw_lives
-    bsr draw_stars
     move.w  #STATE_BONUS_SCREEN,current_state
     move.w #INTERRUPTS_ON_MASK,intena(a5)
     
@@ -757,9 +756,7 @@ hide_sprites:
 .emptyspr
 
     move.l  a1,d0
-    move.w  d0,(6,a0)
-    swap    d0
-    move.w  d0,(2,a0)
+    bsr store_sprite_copperlist
     addq.l  #8,a0
     dbf d1,.emptyspr
     rts
@@ -771,9 +768,7 @@ hide_enemy_sprites:
 .emptyspr
 
     move.l  a1,d0
-    move.w  d0,(6,a0)
-    swap    d0
-    move.w  d0,(2,a0)
+    bsr store_sprite_copperlist
     add.w  #16,a0
     dbf d1,.emptyspr
     rts
@@ -1248,8 +1243,46 @@ draw_all
     bra.b   draw_intro_screen
 ; draw bonus screen
 .bonus_screen
-    tst.l   state_timer
+    cmp.l   #1,state_timer      ; init done at first tick of update_intro_screen
     beq.b   draw_bonus_maze
+    
+    ; draw cattle
+    lea enemies+Enemy_SIZEOF(pc),a0
+    move.w  xpos(a0),d0
+    add.w   #2,d0
+    move.w  ypos(a0),d1
+    add.w   #3+16,d1
+    bsr store_sprite_pos
+    
+    move.l  frame_table(a0),a1
+    move.w  frame(a0),d2
+    lsr.w   #2,d2   ; 8 divide to get 0,1
+    bclr    #0,d2   ; even
+    add.w   d2,d2       ; times 2
+
+    ; get proper frame from proper frame set
+    move.l  (a1,d2.w),a1
+
+    move.l  d0,(a1)     ; store control word
+    move.l  a1,d0
+    lea intro_cattle_pink,a0
+    bsr store_sprite_copperlist
+
+    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
+    lea screen_data,a1
+    move.w  xpos(a0),d0
+    move.w  ypos(a0),d1
+    add.w   #8+8,d1
+    ADD_XY_TO_A1    a2
+    lea (SCREEN_PLANE_SIZE,a1),a2
+    cmp.w   #LEFT,direction(a0)
+    beq.b   .skipleft
+    move.b  (a1),(a2)
+    move.b  (NB_BYTES_PER_LINE,a1),(NB_BYTES_PER_LINE,a2)
+.skipleft
+    move.b  (1,a1),(1,a2)
+    move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
+   
     rts
     
 
@@ -2226,7 +2259,7 @@ draw_bonus_maze:
     ; (except very marginal visual color change) on plane 1
     lea _custom+color,a0
     
-    move.w  #$F00,(2,a0)  ; green outline
+    move.w  #$F00,(2,a0)  ; red outline
 
 
     lea screen_data,a1
@@ -2236,16 +2269,51 @@ draw_bonus_maze:
     add.w   #SCREEN_PLANE_SIZE,a1
     bsr clear_playfield_plane
         
+        
     ; vertical edges
-    lea screen_data+MAZE_ADDRESS_OFFSET,a1
-    move.w  #MAZE_HEIGHT-1,d1
+    lea screen_data+BONUS_MAZE_ADDRESS_OFFSET,a1
+    move.w  #MAZE_HEIGHT-9-8,d1
 
     bsr draw_maze_vertical_edges
    
     ; horizontal separations
     move.l  bonus_vertical_table(pc),a0
-    lea screen_data+MAZE_ADDRESS_OFFSET+4*NB_BYTES_PER_LINE,a1
+    lea screen_data+BONUS_MAZE_ADDRESS_OFFSET-12*NB_BYTES_PER_LINE,a1
     bsr draw_maze_horizontal_lines
+ 
+
+
+
+    ; I realise now that
+    ; handling of palette is not super good all throughout the game
+    ; that last way is pretty good: using palette parts
+    ; to load sprite palettes, instead of hardcoding or
+    ; copying in bulk, which isn't compatible with bonus parts
+    ; or intro parts which don't respect the game palette logic
+    ; (guard/cattle)
+    
+    lea _custom+color+32,a1  ; sprite 0-1 colors
+    lea banana_sprite_palette(pc),a0
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    lea cattle_sprite_palette(pc),a0    ; sprite 2-3 colors
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    
+    ; banana, we're going to use a sprite
+    move.w  banana_x(pc),d0
+    move.w  #200,d1
+    bsr store_sprite_pos
+
+    ; write control word
+    lea banana_sprite,a0
+    move.l  d0,(a0)
+    move.l  a0,d0
+    lea bonus_banana,a0
+    bsr store_sprite_copperlist
+
+    bsr draw_lives
+    bsr draw_stars
     
     rts    
 
@@ -2297,6 +2365,13 @@ draw_maze_horizontal_lines:
     bra.b   .seploop
 .out
     rts
+
+store_sprite_copperlist    
+    move.w  d0,(6,a0)
+    swap    d0
+    move.w  d0,(2,a0)
+    rts
+
     
 init_dots:
     ; init dots
@@ -2690,6 +2765,8 @@ update_all
 
 .intro_screen
     bra update_intro_screen
+    
+    ; update_bonus_screen
 .bonus_screen
     tst.l   state_timer
     bne.b   .no_first_bonus_tick
@@ -2702,12 +2779,93 @@ update_all
     lsl.w   #3,d0   ; times 8
     lea maze_bonus_table(pc),a0
     add.w   d0,a0       ; pointers on maze walls
-    move.l  (a0)+,bonus_wall_table
+    move.l  (a0)+,maze_wall_table
     move.l  (a0)+,bonus_vertical_table
+    clr.b   bonus_cattle_moving
+    ; pick a position for the banana 0-5
+.random_loop2
+    bsr random
+    and.w   #$7,d0
+    cmp.w   #6,d0
+    bcc.b   .random_loop2
+    ; multiply by 40 (how convenient) to get coordinate
+    lea mul40_table(pc),a1
+    add.w   d0,d0
+    move.w  (a1,d0.w),banana_x
+    
+    st.b    bonus_sprites
+    moveq.l #0,d0
+    bsr init_enemies
+    lea enemies+Enemy_SIZEOF(pc),a0
+
+    move.w  #0,xpos(a0)
+    move.w  #-8,ypos(a0)     ; this is the logical coordinate
+    move.w  #DOWN,direction(a0)
+    move.l  #$FFFF0001,h_speed(a0)
+    
+    clr.w   bonus_level_lane_select_subcounter
     
 .no_first_bonus_tick
+
+        ;bonus_level_lane_select_timer
+    ;clr.w   
+
     addq.l  #1,state_timer
+    
+    tst.b   bonus_cattle_moving
+    bne.b   .moving
+    
+    move.l  joystick_state(pc),d0
+    cmp.l   #ORIGINAL_TICKS_PER_SEC*10,state_timer
+    bne.b   .no_timeout
+    ; timeout (if not already triggered)
+    bset    #JPB_BTN_RED,d0
+.no_timeout
+    btst    #JPB_BTN_RED,d0
+    beq.b   .no_fire
+    ; play music TODO
+    st.b    bonus_cattle_moving
+.no_fire
+    ; just selecting lane
+    addq.w  #1,bonus_level_lane_select_subcounter
+    cmp.w   #10,bonus_level_lane_select_subcounter
+    bne.b   .do_nothing
+    clr.w   bonus_level_lane_select_subcounter
+    ; play ping sound
+    lea ping_sound,a0
+    bsr play_fx
+    ; advance lane
+    lea enemies+Enemy_SIZEOF(pc),a0
+    move.w  xpos(a0),d0
+    add.w   #40,d0
+    cmp.w   #240,d0
+    bne.b   .no_wrap
+    clr.w   d0
+.no_wrap
+    move.w  d0,xpos(a0)
+.do_nothing
     rts
+    
+.moving
+    lea enemies+Enemy_SIZEOF(pc),a4
+
+    move.w  ypos(a4),d0
+    bmi.b   .down   ; not in the maze yet²
+    cmp.w   #180,d0
+    beq.b   .out
+    cmp.w   #180,d0
+    bcc.b   .down   ; out of the maze
+    bra move_normal
+.no_animate
+    rts
+.horiz
+    addq.w  #1,xpos(a4)
+    rts
+.down
+    bsr animate_enemy
+    addq.w  #1,ypos(a4)
+    rts    
+    
     
 .game_start_screen
     tst.l   state_timer
@@ -4867,11 +5025,13 @@ cheat_keys
 death_frame_offset
     dc.w    0
 
-bonus_wall_table
-    dc.l    0
+; move every 10 ticks
+bonus_level_lane_select_subcounter:
+    dc.w    0
 bonus_vertical_table
     dc.l    0
-    
+banana_x
+    dc.w    0
 nb_enemies
     dc.w    4
 jump_index
@@ -4883,6 +5043,8 @@ maze_outline_color
 maze_fill_color
     dc.w    0
 total_number_of_dots:
+    dc.b    0
+bonus_cattle_moving:
     dc.b    0
 
 next_level_is_bonus_level
@@ -5297,6 +5459,10 @@ game_palette
     include "palette.s"
 alt_sprite_palette
     include "alt_palette.s"
+banana_sprite_palette:
+    include "banana.s"
+cattle_sprite_palette:
+    include "cattle.s"
     
 player:
     ds.b    Player_SIZEOF
@@ -5366,6 +5532,7 @@ colors:
 sprites:
 enemy_sprites:
 intro_green_police:
+bonus_banana:
     ; #0
     dc.w    sprpt+0,0
     dc.w    sprpt+2,0
@@ -5394,8 +5561,6 @@ thief_sprite:
 score_sprite_entry:     ; can use since there's white in thief sprite
     dc.w    sprpt+28,0
     dc.w    sprpt+30,0
-
-
 end_color_copper:
    dc.w  diwstrt,$3081            ;  DIWSTRT
    dc.w  diwstop,$28c1            ;  DIWSTOP
@@ -5410,7 +5575,11 @@ end_color_copper:
     dc.l    -2
 
    
-
+banana_sprite
+    dc.l    0
+    incbin  "banana.bin"
+    dc.l    0
+    
 copier_left_0
     incbin  "copier_left_0.bin"
 copier_left_1    
