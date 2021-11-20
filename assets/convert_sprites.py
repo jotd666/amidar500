@@ -66,9 +66,10 @@ def process_intro_maze():
 def process_bonus_mazes():
     with open("../src/bonus_maze_data.s","w") as fw:
         t = []
-        for i in range(1,4):
+        # maze 4 is a test maze
+        for i in range(1,5):
             name = "bonus_{}".format(i)
-            t.append(process_alt_maze(name,24,fw,True))
+            t.append(process_alt_maze(name,27,fw,True))
 
         fw.write("\nmaze_bonus_table:\n")
         for r in t:

@@ -111,7 +111,9 @@ EXTRA_LIFE_PERIOD = 70000/10
 
 START_LEVEL = 1
 
-
+BONUS_PENDING = 0
+BONUS_WON = 1
+BONUS_LOST = 2
 
 MODE_NORMAL = 0     ; police/cattle only. normal amidar movement
 MODE_WANDER = 1<<2     ; thief only. thief ventures in the maze
@@ -1251,9 +1253,42 @@ draw_all
     move.w  xpos(a0),d0
     add.w   #2,d0
     move.w  ypos(a0),d1
-    add.w   #3+16,d1
+    add.w   #3-4,d1
     bsr store_sprite_pos
     
+    move.w   bottom_reached(pc),d2
+    beq.b   .normal
+    cmp.w   #BONUS_LOST,d2
+    beq.b   .lost
+    ; BONUS_WON
+    ; switch banana for score
+    move.l  d0,d2
+    lea _custom+color+32,a1  ; sprite 0-1 colors
+    move.l  #$0FFF0FFF,d0
+    move.l  d0,(a1)+
+    move.l  d0,(a1)+
+    
+    move.w  banana_x(pc),d0
+    move.w  #200,d1
+    bsr store_sprite_pos    
+    
+    ; write control word
+    lea score_5000,a0
+    move.l  d0,(a0)
+    move.l  a0,d0
+    lea bonus_banana,a0
+    bsr store_sprite_copperlist
+    
+    move.l  d2,d0
+    
+    ; change sprite to first cattle jump
+    lea cattle1_jump_0,a1
+    bra.b  .store_cw
+.lost
+    lea cattle1_hang_1,a1
+    ; change sprite to second cattle hang
+    bra.b  .store_cw
+.normal
     move.l  frame_table(a0),a1
     move.w  frame(a0),d2
     lsr.w   #2,d2   ; 8 divide to get 0,1
@@ -1263,16 +1298,18 @@ draw_all
     ; get proper frame from proper frame set
     move.l  (a1,d2.w),a1
 
+.store_cw
     move.l  d0,(a1)     ; store control word
     move.l  a1,d0
     lea intro_cattle_pink,a0
     bsr store_sprite_copperlist
 
+    lea enemies+Enemy_SIZEOF(pc),a0
     ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
     lea screen_data,a1
     move.w  xpos(a0),d0
     move.w  ypos(a0),d1
-    add.w   #8+8,d1
+    add.w   #2,d1
     ADD_XY_TO_A1    a2
     lea (SCREEN_PLANE_SIZE,a1),a2
     cmp.w   #LEFT,direction(a0)
@@ -2260,6 +2297,7 @@ draw_bonus_maze:
     lea _custom+color,a0
     
     move.w  #$F00,(2,a0)  ; red outline
+    move.w  #$FF0,(6,a0)  ; yellow fill
 
 
     lea screen_data,a1
@@ -2280,9 +2318,6 @@ draw_bonus_maze:
     move.l  bonus_vertical_table(pc),a0
     lea screen_data+BONUS_MAZE_ADDRESS_OFFSET-12*NB_BYTES_PER_LINE,a1
     bsr draw_maze_horizontal_lines
- 
-
-
 
     ; I realise now that
     ; handling of palette is not super good all throughout the game
@@ -2782,6 +2817,7 @@ update_all
     move.l  (a0)+,maze_wall_table
     move.l  (a0)+,bonus_vertical_table
     clr.b   bonus_cattle_moving
+    clr.w   bottom_reached
     ; pick a position for the banana 0-5
 .random_loop2
     bsr random
@@ -2799,7 +2835,7 @@ update_all
     lea enemies+Enemy_SIZEOF(pc),a0
 
     move.w  #0,xpos(a0)
-    move.w  #-8,ypos(a0)     ; this is the logical coordinate
+    move.w  #8,ypos(a0)
     move.w  #DOWN,direction(a0)
     move.l  #$FFFF0001,h_speed(a0)
     
@@ -2823,8 +2859,10 @@ update_all
 .no_timeout
     btst    #JPB_BTN_RED,d0
     beq.b   .no_fire
-    ; play music TODO
+    move.w  #3,d0
+    bsr     play_music
     st.b    bonus_cattle_moving
+    move.w  #ORIGINAL_TICKS_PER_SEC*8,bonus_music_replay_timer
 .no_fire
     ; just selecting lane
     addq.w  #1,bonus_level_lane_select_subcounter
@@ -2847,31 +2885,66 @@ update_all
     rts
     
 .moving
+    subq.w  #1,bonus_music_replay_timer
+    bne.b   .no_replay
+    move.w  #3,d0
+    bsr     play_music
+    move.w  #ORIGINAL_TICKS_PER_SEC*8,bonus_music_replay_timer
+    
+.no_replay
     lea enemies+Enemy_SIZEOF(pc),a4
 
     move.w  ypos(a4),d0
-    bmi.b   .down   ; not in the maze yet²
-    cmp.w   #180,d0
+    bmi.b   .down   ; not in the maze yet
+    cmp.w   #200,d0
     beq.b   .out
-    cmp.w   #180,d0
+    cmp.w   #190,d0
     bcc.b   .down   ; out of the maze
     bra move_normal
 .no_animate
-    rts
-.horiz
-    addq.w  #1,xpos(a4)
     rts
 .down
     bsr animate_enemy
     addq.w  #1,ypos(a4)
     rts    
+   
     
     
 .game_start_screen
     tst.l   state_timer
     bne.b   .out
     addq.l   #1,state_timer
-.out    
+.out
+    ; are we already in the bottom?
+    tst.w   bottom_reached
+    bne.b   .last_timeout
+    ; stop music whatever the outcome
+    bsr stop_sounds
+    ; bottom is reached
+    ; see if won
+    ; arm timeout
+    move.w  xpos(a4),d0
+    cmp.w   banana_x(pc),d0
+    bne.b   .lose
+    ; win
+    move.w  #BONUS_WON,bottom_reached
+    move.w  #ORIGINAL_TICKS_PER_SEC*4,last_bonus_timeout
+    lea win_bonus_sound,a0
+    bsr play_fx
+    move.l  #500,d0
+    bra add_to_score
+.lose
+    move.w  #BONUS_LOST,bottom_reached
+    move.w  #ORIGINAL_TICKS_PER_SEC*3,last_bonus_timeout
+    lea lose_bonus_sound,a0
+    bsr play_fx
+    rts
+.last_timeout
+    subq.w  #1,last_bonus_timeout
+    bne.b   .continue
+    ; next level
+    move.w  #STATE_LEVEL_COMPLETED,current_state
+.continue
     rts
     
 .life_lost
@@ -5028,8 +5101,14 @@ death_frame_offset
 ; move every 10 ticks
 bonus_level_lane_select_subcounter:
     dc.w    0
+bonus_music_replay_timer
+    dc.w    0
 bonus_vertical_table
     dc.l    0
+bottom_reached
+    dc.w    0
+last_bonus_timeout
+    dc.w    0
 banana_x
     dc.w    0
 nb_enemies
@@ -5384,6 +5463,7 @@ SOUND_ENTRY:MACRO
     ; radix, ,channel (0-3)
     SOUND_ENTRY start_music,1,SOUNDFREQ
     SOUND_ENTRY lose_bonus,1,SOUNDFREQ
+    SOUND_ENTRY win_bonus,1,SOUNDFREQ
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
     SOUND_ENTRY player_killed,2,SOUNDFREQ
@@ -5644,9 +5724,6 @@ star
 
 
 
-bonus_scores:
-    incbin  "bonus_5000.bin"
-
 
 
   
@@ -5837,6 +5914,10 @@ score_3200:
     dc.l    0
     incbin  "scores_3200.bin"
     dc.l    0
+score_5000:
+    dc.l    0
+    incbin  "scores_5000.bin"
+    dc.l    0
 
 killed_raw
     incbin  "pacman_killed.raw"
@@ -5858,6 +5939,10 @@ lose_bonus_raw
     incbin  "lose_bonus.raw"
     even
 lose_bonus_raw_end
+win_bonus_raw
+    incbin  "win_bonus.raw"
+    even
+win_bonus_raw_end
 ping_raw
     incbin  "ping.raw"
     even

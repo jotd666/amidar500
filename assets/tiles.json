@@ -150,7 +150,9 @@
  },
 
 {
-   "name":"bonus_5000",
+   "name":"scores_5000",
+   "sprite_number":0,
+   "sprite_palette":[[0,0,0],[240,240,240],[240,240,240],[240,240,240]],
     "frames":1,
    "start_x":96,
    "start_y":128
