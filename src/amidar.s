@@ -94,10 +94,10 @@ Execbase  = 4
 ;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; test bonus screen 
-BONUS_SCREEN_TEST
+;BONUS_SCREEN_TEST
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -109,7 +109,7 @@ BONUS_SCREEN_TEST
 EXTRA_LIFE_SCORE = 30000/10
 EXTRA_LIFE_PERIOD = 70000/10
 
-START_LEVEL = 1
+START_LEVEL = 2
 
 BONUS_PENDING = 0
 BONUS_WON = 1
@@ -472,7 +472,11 @@ intro:
     bsr wait_bof
 
     bsr draw_maze
+    move.w  level_number(pc),d0
+    btst    #0,d0
+    bne.b   .nodots
     bsr draw_dots
+.nodots
     bsr draw_lives
     bsr draw_stars
     move.w  #STATE_PLAYING,current_state
@@ -2159,11 +2163,14 @@ draw_bonuses:
     rts
     
 maze_misc
-    dc.l    level_1_maze
+    dc.l    level_1_maze,level_2_maze
+    dc.l    level_1_maze,level_2_maze
     
 level_1_maze
     dc.w    $F00,$CC9
-   
+level_2_maze
+    dc.w    $0F0,$FF0
+    
 draw_maze:
     bsr wait_blit
     
@@ -2175,7 +2182,12 @@ draw_maze:
     ; this allows to blit main character on planes 0, 2, 3 without any interaction
     ; (except very marginal visual color change) on plane 1
     lea _custom+color,a0
+    move.w  level_number(pc),d0
+    and.w   #3,d0
+    add.w   d0,d0
+    add.w   d0,d0
     move.l  maze_misc(pc),a1
+    add.w   d0,a1
     move.w  (a1)+,(2,a0)  ; dots, color 1
 	move.w  (a1)+,d0
     move.w  d0,(4,a0)  ; dots 
@@ -2219,12 +2231,61 @@ draw_maze:
     move.w  #MAZE_HEIGHT-1,d1
     bsr draw_maze_vertical_edges
     
-    ; horizontal separations
+     lea screen_data+MAZE_ADDRESS_OFFSET,a1
+   ; horizontal separations
+    move.w  level_number(pc),d0
+    btst    #0,d0
+    bne.b   .scores
+    ; level 1
     lea maze_1_vertical_table(pc),a0
-    lea mul40_table(pc),a2
-    lea screen_data+MAZE_ADDRESS_OFFSET,a1
+    bsr draw_maze_horizontal_lines
+    bra.b   .noscores
+.scores    
+   
+    ; we need the height of the rects to center the scores
+    lea maze_2_vertical_table,a0
     bsr draw_maze_horizontal_lines
     
+    lea rectlist_2,a3 ; rects     
+    lea maze_2_vertical_table,a0
+    move.w  #16,d0      ; start X
+.seploop
+    
+    moveq   #0,d1
+    move.b  (a0)+,d1
+    bpl.b   .cont
+    cmp.b   #-2,d1
+    beq.b   .out
+    add.w   #40,d0
+    bra.b   .seploop
+.cont
+    move.l  (a3)+,a4
+    ; draw score
+    move.w  hrect(a4),d2
+    lsl.w   #3,d1   ; times 8
+    lsl.w   #2,d2   ; times 4
+    add.w   d2,d1
+    add.w   #4,d1   ; offset 8 & subtract half font size
+    
+    moveq.l #0,d2
+    move.w  points(a4),d2
+    move.w  #0,d3
+    move.w  #$0e00,d4    ; second entry in palette, but not the actual color
+    move.w  d0,d5
+    move.l  a0,-(a7)
+    bsr write_color_decimal_number    
+    move.w  d5,d0
+    add.w   #16,d0
+    lea .zero(pc),a0
+    move.w  d4,d2
+    bsr write_color_string
+    move.l  (a7)+,a0
+    move.w  d5,d0
+    
+    bra.b   .seploop
+.out
+  
+.noscores
     ; backup this plane so we can restore background
     lea grid_backup_plane,a1
     move.l  #SCREEN_PLANE_SIZE/4-1,d0
@@ -2242,7 +2303,9 @@ draw_maze:
     dbf d0,.bup2
     
     rts    
-
+.zero
+    dc.b    "0",0
+    even
 
 draw_intro_maze:
     bsr wait_blit
@@ -4714,7 +4777,6 @@ write_decimal_number
     
 ; what: writes an decimal number with a given color
 ; args:
-; < A1: plane
 ; < D0: X (multiple of 8)
 ; < D1: Y
 ; < D2: number value

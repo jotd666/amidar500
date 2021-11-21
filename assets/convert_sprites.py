@@ -74,54 +74,8 @@ def process_bonus_mazes():
         fw.write("\nmaze_bonus_table:\n")
         for r in t:
             fw.write("\tdc.l\t{},{}\n".format(*r))
-def process_maze():
-    maze = Image.open("level1.png")
-
-    # now the big time saver: detect maze walls & dots from MAME screenshots
-    img = Image.new("RGB",(maze.size[0],maze.size[1]-24-16))
-    img.paste(maze,(0,-24))
-    rows = []
-    rect_id = 0
-
-    current_rect = None
-    for i,x in enumerate(range(8,208,40)):
-        row = []
-        for j,y in enumerate(range(4,210,8)):
-            # if not black then there's an horizontal segment here
-            p = img.getpixel((x+4,y+3))
-            if p != (0,0,0):
-                if current_rect:
-                    # complete current rect
-                    current_rect["height"] = j-current_rect["row"]
-
-                current_rect = {"x":x-8,"y":y-4,"row":j,"id":rect_id}
-                rect_id += 1
-                row.append(current_rect)
-        current_rect["height"] = 26-current_rect["row"]
-        current_rect = None
-        rows.append(row)
-
-    NB_H_TILES = 26
-
-    last_row = [1]*NB_H_TILES
-    last_row[10:16] = [0]*6
-    dot_matrix = [[0]*NB_H_TILES for _ in range(26)]
-    for row in dot_matrix:
-        for i in range(0,NB_H_TILES,5):
-            row[i] = 1
-        row[-1]=1
-
-
-    # create wall table
-    dot_matrix.append(last_row)
-
-    for i,row in enumerate(rows):
-        for r in row:
-            dr = dot_matrix[r["row"]]
-            for j in range(6):
-                dr[j+i*5] = 1
-
-    i=1
+def process_mazes():
+    sqs = iter(square_scores)
     with open("../src/maze_data.s","w")as fw:
         fw.write("""    STRUCTURE   SRectangle,0
     UWORD   xrect
@@ -134,102 +88,153 @@ def process_maze():
     LABEL   SRectangle_SIZEOF
 
 """)
-        fw.write("maze_{}_vertical_table:\n".format(i))
-        for row in rows:
-            fw.write("\tdc.b\t")
-            fw.write(",".join(str(x["row"]) for x in row))
-            fw.write(",-1\n")
-        fw.write("\tdc.b\t-2\n\teven\n\n")
+        for level in range(1,3):
+            maze = Image.open("level{}.png".format(level))
 
-        rectdict = {}
-        for ri,row in enumerate(rows):
-            for rj,rect in enumerate(row):
-                rect["name"] = "rect_{}_{:02}".format(i,rect["id"])
-                nb_dots = 2*(5+rect["height"])
+            # now the big time saver: detect maze walls & dots from MAME screenshots
+            img = Image.new("RGB",(maze.size[0],maze.size[1]-24-16))
+            img.paste(maze,(0,-24))
+            rows = []
+            rect_id = 0
 
-                special_rectangle = (ri == 0 or ri == 4) and (rj == 0 or rj == len(row)-1)
+            current_rect = None
+            for i,x in enumerate(range(8,208,40)):
+                row = []
+                for j,y in enumerate(range(4,210,8)):
+                    # if not black then there's an horizontal segment here
+                    p = img.getpixel((x+4,y+3))
+                    if p != (0,0,0):
+                        if current_rect:
+                            # complete current rect
+                            current_rect["height"] = j-current_rect["row"]
 
-                if rj==len(row)-1:
-                    if ri==2:
-                        nb_dots -= 6    # start point
-                    elif ri==1 or ri==3:
-                        nb_dots -= 1
-                rectdict[rect["name"]] = rect
-                fw.write("{}:\n".format(rect["name"]))
-                fw.write("\tdc.w\t{} ; x\n".format(rect["x"]))
-                fw.write("\tdc.w\t{} ; y\n".format(rect["y"]))
-                fw.write("\tdc.w\t{} ; height\n".format(rect["height"]))
-                fw.write("\tdc.w\t{} ; max nb dots\n".format(nb_dots))
-                fw.write("\tdc.w\t0 ; current nb dots\n")
-                fw.write("\tdc.w\t0 ; points\n")
-                fw.write("\tdc.w\t{} ; special rectangle\n".format(int(special_rectangle)))
+                        current_rect = {"x":x-8,"y":y-4,"row":j,"id":rect_id}
+                        rect_id += 1
+                        row.append(current_rect)
+                current_rect["height"] = 26-current_rect["row"]
+                current_rect = None
+                rows.append(row)
 
-        fw.write("\nrectlist_{}:\n".format(i))
-        for rn in sorted(rectdict):
-            fw.write("\tdc.l\t{}\n".format(rn))
-        fw.write("\tdc.l\t0\n")
+            NB_H_TILES = 26
 
-
-        dot_rect_matrix = [[0]*4*NB_H_TILES for _ in range(27)]
-        # for each rectangle, compute coordinates and add the rectangle as a reference (or not)
-        def mark(i,j,m):
-            row = dot_rect_matrix[j]
-            fouri = 4*i
-            name = m["name"]
-            for l in range(fouri,fouri+4):
-                if row[l]==name:
-                    break
-                if not row[l]:
-                    row[l] = m["name"]
-                    break
-
-        for row in rows:
-            for rect in row:
-                # horizontal
-                xstart = rect["x"]//8
-                ystart = rect["y"]//8
-                h = rect["height"]
-                for xt in range(6):
-                    mark(xt+xstart,ystart,rect)
-                    mark(xt+xstart,ystart+h,rect)
-                for yt in range(h):
-                    mark(xstart+5,ystart+yt,rect)
-                    mark(xstart,ystart+yt,rect)
-
-        fw.write("maze_{}_dot_table_read_only:\n".format(i))
-        dot_rect_matrix[-1][40:64] = [0]*24
-        for row in dot_rect_matrix:
-            fw.write("\tdc.l\t")
-            fw.write(",".join("{}".format(str(x)) for x in row))
-            fw.write("\n")
+            last_row = [1]*NB_H_TILES
+            last_row[10:16] = [0]*6
+            dot_matrix = [[0]*NB_H_TILES for _ in range(26)]
+            for row in dot_matrix:
+                for i in range(0,NB_H_TILES,5):
+                    row[i] = 1
+                row[-1]=1
 
 
-        fw.write("\nmaze_{}_wall_table:\n".format(i))
-        # binary table with all walkable tiles set to 1
-        dot_matrix[-1] = [1]*26
-        for row in dot_matrix:
-            fw.write("\tdc.b\t")
-            fw.write(",".join(str(x) for x in row))
-            fw.write("\n")
+            # create wall table
+            dot_matrix.append(last_row)
 
-##            def torgb4(t):
-##                return ((t[0]&0xF0)<<4)+((t[1]&0xF0))+(t[2]>>4)
-##            fw.write("\n\teven\nmaze_{}_misc:\n".format(i))
-##            fw.write("\tdc.w\t${:x}  ; dots\n".format(torgb4(dot_color)))
-##            fw.write("\tdc.w\t${:x}  ; outline\n".format(torgb4(outline_color)))
-##            fw.write("\tdc.w\t${:x}  ; fill\n".format(torgb4(fill_color)))
-##            fw.write("\tdc.w\t{}    ; total nb dots\n\n".format(nb_dots[i-1]))
-##
-##
-##            # now dump each maze with its own palette
-##            maze_palette = [(0,0,0),(0,0,0),outline_color,fill_color]  # black, dot color, maze colors
+            for i,row in enumerate(rows):
+                for r in row:
+                    dr = dot_matrix[r["row"]]
+                    for j in range(6):
+                        dr[j+i*5] = 1
 
 
+            fw.write("maze_{}_vertical_table:\n".format(level))
+            for row in rows:
+                fw.write("\tdc.b\t")
+                fw.write(",".join(str(x["row"]) for x in row))
+                fw.write(",-1\n")
+            fw.write("\tdc.b\t-2\n\teven\n\n")
 
-        # pixel 1,5 holds the fill color of the maze wall
-        #maze_img.save("dumps/maze_{}.png".format(i))
-        #maze_palette = bitplanelib.palette_extract(maze,0xF0)
-        #
+            rectdict = {}
+            for ri,row in enumerate(rows):
+                for rj,rect in enumerate(row):
+                    rect["name"] = "rect_{}_{:02}".format(level,rect["id"])
+                    nb_dots = 2*(5+rect["height"])
+
+                    special_rectangle = (ri == 0 or ri == 4) and (rj == 0 or rj == len(row)-1)
+
+                    if rj==len(row)-1:
+                        if ri==2:
+                            nb_dots -= 6    # start point
+                        elif ri==1 or ri==3:
+                            nb_dots -= 1
+                    rectdict[rect["name"]] = rect
+
+                    points = 0 if level==1 else next(sqs)
+
+                    fw.write("{}:\n".format(rect["name"]))
+                    fw.write("\tdc.w\t{} ; x\n".format(rect["x"]))
+                    fw.write("\tdc.w\t{} ; y\n".format(rect["y"]))
+                    fw.write("\tdc.w\t{} ; height\n".format(rect["height"]))
+                    fw.write("\tdc.w\t{} ; max nb dots\n".format(nb_dots))
+                    fw.write("\tdc.w\t0 ; current nb dots\n")
+                    fw.write("\tdc.w\t{} ; points\n".format(points))
+                    fw.write("\tdc.w\t{} ; special rectangle\n".format(int(special_rectangle)))
+
+            fw.write("\nrectlist_{}:\n".format(level))
+            for rn in sorted(rectdict):
+                fw.write("\tdc.l\t{}\n".format(rn))
+            fw.write("\tdc.l\t0\n")
+
+
+            dot_rect_matrix = [[0]*4*NB_H_TILES for _ in range(27)]
+            # for each rectangle, compute coordinates and add the rectangle as a reference (or not)
+            def mark(i,j,m):
+                row = dot_rect_matrix[j]
+                fouri = 4*i
+                name = m["name"]
+                for l in range(fouri,fouri+4):
+                    if row[l]==name:
+                        break
+                    if not row[l]:
+                        row[l] = m["name"]
+                        break
+
+            for row in rows:
+                for rect in row:
+                    # horizontal
+                    xstart = rect["x"]//8
+                    ystart = rect["y"]//8
+                    h = rect["height"]
+                    for xt in range(6):
+                        mark(xt+xstart,ystart,rect)
+                        mark(xt+xstart,ystart+h,rect)
+                    for yt in range(h):
+                        mark(xstart+5,ystart+yt,rect)
+                        mark(xstart,ystart+yt,rect)
+
+            fw.write("maze_{}_dot_table_read_only:\n".format(level))
+            dot_rect_matrix[-1][40:64] = [0]*24
+            for row in dot_rect_matrix:
+                fw.write("\tdc.l\t")
+                fw.write(",".join("{}".format(str(x)) for x in row))
+                fw.write("\n")
+
+
+            fw.write("\nmaze_{}_wall_table:\n".format(level))
+            # binary table with all walkable tiles set to 1
+            dot_matrix[-1] = [1]*26
+            for row in dot_matrix:
+                fw.write("\tdc.b\t")
+                fw.write(",".join(str(x) for x in row))
+                fw.write("\n")
+
+    ##            def torgb4(t):
+    ##                return ((t[0]&0xF0)<<4)+((t[1]&0xF0))+(t[2]>>4)
+    ##            fw.write("\n\teven\nmaze_{}_misc:\n".format(i))
+    ##            fw.write("\tdc.w\t${:x}  ; dots\n".format(torgb4(dot_color)))
+    ##            fw.write("\tdc.w\t${:x}  ; outline\n".format(torgb4(outline_color)))
+    ##            fw.write("\tdc.w\t${:x}  ; fill\n".format(torgb4(fill_color)))
+    ##            fw.write("\tdc.w\t{}    ; total nb dots\n\n".format(nb_dots[i-1]))
+    ##
+    ##
+    ##            # now dump each maze with its own palette
+    ##            maze_palette = [(0,0,0),(0,0,0),outline_color,fill_color]  # black, dot color, maze colors
+
+
+
+            # pixel 1,5 holds the fill color of the maze wall
+            #maze_img.save("dumps/maze_{}.png".format(i))
+            #maze_palette = bitplanelib.palette_extract(maze,0xF0)
+            #
 
 
 # palette order matters
@@ -455,7 +460,7 @@ process_intro_maze()
 
 process_bonus_mazes()
 
-process_maze()
+process_mazes()
 
 process_tiles()
 
