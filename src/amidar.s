@@ -1308,11 +1308,44 @@ draw_all
     bsr store_sprite_copperlist
 
     lea enemies+Enemy_SIZEOF(pc),a0
-    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
-    lea screen_data,a1
+
     move.w  xpos(a0),d0
     move.w  ypos(a0),d1
+
+    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
+    move.w  previous_xpos(pc),d2
+    bmi.b   .no_diagonal
+    cmp.w   d0,d2
+    beq.b   .no_diagonal
+    move.w  previous_ypos(pc),d3
+    cmp.w   d1,d3
+    beq.b   .no_diagonal
+    ; both x and y are different because update skipped a frame and went diagonal
+    ; we have to fix that else the line will be buggy
+        ; y is different
+    movem.w d0-d1,-(a7)
+    move.w   d3,d1  ; previous y
     add.w   #2,d1
+    bsr .copyit
+    movem.w (a7),d0-d1
+    move.w   d2,d0  ; previous y
+    add.w   #2,d1
+    bsr .copyit
+    movem.w (a7)+,d0-d1
+    
+.no_diagonal
+    
+    move.w  d0,previous_xpos
+    move.w  d1,previous_ypos
+    
+    add.w   #2,d1
+    
+    bsr .copyit
+    
+    rts
+    
+.copyit:
+    lea screen_data,a1    
     ADD_XY_TO_A1    a2
     lea (SCREEN_PLANE_SIZE,a1),a2
     cmp.w   #LEFT,direction(a0)
@@ -2416,6 +2449,8 @@ draw_bonus_maze:
     bsr draw_lives
     bsr draw_stars
     
+    move.w   #-1,previous_xpos
+    move.w   #-1,previous_ypos
     rts    
 
 
@@ -3530,35 +3565,74 @@ enemy_try_horizontal
     move.w  d2,d0
     move.w  d3,d1
     
+
     add.w   d4,d0
-    bmi.b   .no_horizontal_revert    ; off limits
+
+    ; within maze: check if can move horizontally
+    ; both left & right, regardless of direction, but with priority
+    ; to the current direction
+    
+    moveq.w #1,d6   ; pass 1
+    
+    tst.w   d4
+    bmi.b   .test_left
+    ; right first 
+.test_right
+
     cmp.w   #X_MAX+1,d0
     beq.b   .no_horizontal_revert
-    ; within maze: check if can move horizontally
+    cmp.w   #X_MAX,d2
+    beq.b   .no_horizontal
+
+    move.w  d2,d0
     
-    move.w  d0,d6   ; save d0
-    tst.w   d4
-    bmi.b   .left
-    ; right
-    add.w   #7,d0
+    add.w  #8,d0
+    cmp.w   #X_MAX+1,d0
+    bcc.b   .right_ok
+    ; right test
     bsr     is_location_legal
     tst.b   d0
-    bne.b   .hok
-    bra.b   .no_horizontal
-    ; left
-.left
-    move.w  d6,d0
-    move.w  d3,d1
+    beq.b   .maybe_test_left
+.right_ok
+    ; right is valid: set this as h speed
+    move.w  #1,d4
+    move.w  d4,h_speed(a4)
+    bra.b   .hok
+.maybe_test_left
+    tst.w   d6
+    beq.b   .no_horizontal
+.test_left_pass2
+    clr.w   d6      ; pass 2
+    move.w  d3,d1   ; restore y coord
+.test_left
+    tst.w   d0
+    bmi.b   .no_horizontal_revert    ; off limits
+    tst.w   d2
+    beq.b   .no_horizontal
+    move.w  d2,d0
+    subq.w   #1,d0
 .htest
     bsr     is_location_legal
     tst.b   d0
-    beq.b   .no_horizontal
+    beq.b   .maybe_test_right
+    ; left is valid: set it as h speed
+    moveq.w  #-1,d4
+    move.w  d4,h_speed(a4)
+
 .hok
     ; can move: validate
     add.w  d4,xpos(a4)
     clr.w   d5
     moveq.w #1,d0
     rts
+.maybe_test_right
+    tst.w   d6
+    beq.b   .no_horizontal
+    clr.w   d6      ; pass 2
+    ; restore y coord and test right
+    move.w  d3,d1
+    bra.b   .test_right
+    
 .no_horizontal
     clr.w   d4
     clr.w   d0
@@ -5260,6 +5334,10 @@ bottom_reached
 last_bonus_timeout
     dc.w    0
 banana_x
+    dc.w    0
+previous_xpos
+    dc.w    0
+previous_ypos
     dc.w    0
 nb_enemies
     dc.w    4
