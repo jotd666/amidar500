@@ -94,10 +94,10 @@ Execbase  = 4
 ;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; test bonus screen 
-;BONUS_SCREEN_TEST
+BONUS_SCREEN_TEST
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -109,7 +109,7 @@ Execbase  = 4
 EXTRA_LIFE_SCORE = 30000/10
 EXTRA_LIFE_PERIOD = 70000/10
 
-START_LEVEL = 2
+START_LEVEL = 1
 
 BONUS_PENDING = 0
 BONUS_WON = 1
@@ -457,7 +457,14 @@ intro:
     ;;bsr draw_bounds
     
     bsr hide_sprites
+    move.w  level_number(pc),d0
+    btst    #0,d0
+    beq.b   .dots
+    bsr     init_paint
+    bra.b   .dotsorpaint
+.dots:
     bsr init_dots
+.dotsorpaint
 
     ; enable copper interrupts, mainly
     moveq.l #0,d0
@@ -643,6 +650,7 @@ init_new_play:
     rts
     
 init_level: 
+    
     ; sets initial number of dots
     lea rectlist_1(pc),a0
 .riloop
@@ -658,15 +666,9 @@ init_level:
     move.w  level_number(pc),d2
     btst    #0,d2
   
-    cmp.w   #21,d2
-    bcs.b   .okay
-    ; maxed out
-    move.w  #20,d2
-.okay
-
     
-    
-    clr.b  nb_dots_eaten
+    clr.w   power_state_counter
+    clr.w   power_song_countdown
     clr.b   elroy_mode_lock
     
 
@@ -960,7 +962,7 @@ init_player
 
     move.w  #-1,player_killed_timer
     move.w  #-1,ghost_eaten_timer
-    clr.w   next_ghost_iteration_score
+    clr.w   next_enemy_iteration_score
     clr.w   fright_timer    
     move.b  #3,nb_stars
     move.w  #-1,jump_index
@@ -1061,9 +1063,6 @@ draw_debug
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
     clr.l   d2
-    move.b nb_dots_eaten(pc),d2
-    move.w  #3,d3
-    bsr write_decimal_number
     ; ---
     move.w  #DEBUG_X,d0
     add.w  #8,d1
@@ -2170,6 +2169,10 @@ level_1_maze
     dc.w    $F00,$CC9
 level_2_maze
     dc.w    $0F0,$FF0
+level_3_maze
+    dc.w    $0F0,$f91
+level_4_maze
+    dc.w    $F00,$FF0
     
 draw_maze:
     bsr wait_blit
@@ -2484,6 +2487,38 @@ init_dots:
     dbf d0,.copy
     rts
     
+    
+
+init_paint:
+    ; init dots
+    lea maze_2_dot_table_read_only,a0
+    lea dot_table,a1
+    move.w  #NB_TILE_LINES*NB_TILES_PER_LINE-1,d0
+.copy
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    dbf d0,.copy
+    
+
+    
+    ; this is going to be used as temp/permanent paint markers
+
+    lea paint_table,a1
+    move.w  #NB_TILE_LINES*NB_TILES_PER_LINE-1,d0
+.clr
+    clr.b  (a1)+
+    dbf d0,.clr
+    ; the central segment of the last row is painted
+    lea paint_table+10-NB_TILES_PER_LINE,a1
+    moveq.w #5,d0
+.paint
+    move.b  #2,(a1)+
+    dbf d0,.paint
+    rts
+    
+    
 draw_dots:
     lea screen_data+MAZE_ADDRESS_OFFSET+SCREEN_PLANE_SIZE-NB_BYTES_PER_LINE,a2
     lea dot_table,a0
@@ -2721,7 +2756,8 @@ level2_interrupt:
 .no_debug
     cmp.b   #$54,d0     ; F5
     bne.b   .no_bonus
-
+    ; activate the "power pill" sequence
+    bsr all_four_corners_done
     bra.b   .no_playing
 .no_bonus
 
@@ -2852,6 +2888,9 @@ vbl_counter:
 
 
 SONG_1_LENGTH = ORIGINAL_TICKS_PER_SEC*17+ORIGINAL_TICKS_PER_SEC/2-2
+SONG_2_LENGTH = ORIGINAL_TICKS_PER_SEC*15+ORIGINAL_TICKS_PER_SEC/2-8
+BONUS_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*8
+POWER_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*4+ORIGINAL_TICKS_PER_SEC/2-6
 
 ; what: updates game state
 ; args: none
@@ -2925,7 +2964,7 @@ update_all
     move.w  #3,d0
     bsr     play_music
     st.b    bonus_cattle_moving
-    move.w  #ORIGINAL_TICKS_PER_SEC*8,bonus_music_replay_timer
+    move.w  #BONUS_SONG_LENGTH,bonus_music_replay_timer
 .no_fire
     ; just selecting lane
     addq.w  #1,bonus_level_lane_select_subcounter
@@ -2952,7 +2991,7 @@ update_all
     bne.b   .no_replay
     move.w  #3,d0
     bsr     play_music
-    move.w  #ORIGINAL_TICKS_PER_SEC*8,bonus_music_replay_timer
+    move.w  #BONUS_SONG_LENGTH,bonus_music_replay_timer
     
 .no_replay
     lea enemies+Enemy_SIZEOF(pc),a4
@@ -3037,9 +3076,15 @@ update_all
 .playing
     tst.l   state_timer
     bne.b   .no_first_tick
-    move.w  #ORIGINAL_TICKS_PER_SEC*5,.start_music_countdown
+    moveq.w   #1,d0
+    tst.w  level_number
+    bne.b   .no_delay
+    ; first level: play start music
     lea start_music_sound,a0
     bsr     play_fx
+    move.w  #ORIGINAL_TICKS_PER_SEC*5,d0
+.no_delay
+    move.w  d0,.start_music_countdown
     ; for demo mode
     addq.w  #1,record_input_clock
 
@@ -3049,16 +3094,43 @@ update_all
     bsr update_player
     bsr update_enemies
 
+    move.w   power_state_counter(pc),d0
+    bne.b   .power_music
+    
     move.w  .start_music_countdown(pc),d0
-    subq.w  #1,d0    ; starts after 2 seconds
+    subq.w  #1,d0    ; starts after a few seconds
     bne.b   .no_start_music
-
-    moveq.l #0,d0   ; start!!
+.normal_music
+    move.w  level_number(pc),d0
+    btst    #0,d0
+    beq.b   .copier_level
+    moveq.l #4,d0   ; start!! TEMP
+    bsr play_music
+    move.w  #SONG_2_LENGTH,d0
+    bra.b   .no_start_music
+.copier_level
+    moveq.l #0,d0   ; start!! TEMP
     bsr play_music
     move.w  #SONG_1_LENGTH,d0
 .no_start_music
     move.w  d0,.start_music_countdown
+    bra.b   .music_out
+.power_music
+    subq.w  #1,d0
+    move.w  d0,power_state_counter
+    beq.b   .normal_music
+    ; power music countdown
+    move.w  power_song_countdown(pc),d0
+    subq.w  #1,d0
+    bne.b   .continue_power
+    ; restart music
+    moveq.l #2,d0
+    bsr play_music
+    move.w  #POWER_SONG_LENGTH,d0
+.continue_power
+    move.w  d0,power_song_countdown
     
+.music_out
     addq.l  #1,state_timer
     rts
 .ready_off
@@ -3127,8 +3199,8 @@ a_ghost_was_eaten:
     ;bsr     play_fx
 .no_sound
     
-    move.w  next_ghost_iteration_score(pc),d0
-    add.w   #1,next_ghost_iteration_score
+    move.w  next_enemy_iteration_score(pc),d0
+    add.w   #1,next_enemy_iteration_score
     add.w   d0,d0
     add.w   d0,d0
     lea  score_value_table(pc),a0
@@ -3454,40 +3526,48 @@ enemy_try_horizontal
     move.w  d3,d1
     ; don't try if not aligned y-wise
     and.w   #7,d1
-    bne.b   .no_horizonal
+    bne.b   .no_horizontal
     move.w  d2,d0
     move.w  d3,d1
     
     add.w   d4,d0
-    bmi.b   .no_horizonal_revert    ; off limits
+    bmi.b   .no_horizontal_revert    ; off limits
     cmp.w   #X_MAX+1,d0
-    beq.b   .no_horizonal_revert
+    beq.b   .no_horizontal_revert
     ; within maze: check if can move horizontally
+    
+    move.w  d0,d6   ; save d0
     tst.w   d4
-    bmi.b   .to_left
+    bmi.b   .left
     ; right
     add.w   #7,d0
-    bra.b   .htest
-.to_left
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b   .hok
+    bra.b   .no_horizontal
+    ; left
+.left
+    move.w  d6,d0
+    move.w  d3,d1
 .htest
     bsr     is_location_legal
     tst.b   d0
-    beq.b   .no_horizonal
+    beq.b   .no_horizontal
 .hok
     ; can move: validate
     add.w  d4,xpos(a4)
     clr.w   d5
     moveq.w #1,d0
     rts
-.no_horizonal
+.no_horizontal
     clr.w   d4
     clr.w   d0
     rts
-.no_horizonal_revert
-    ; off limits, reverse speed
+.no_horizontal_revert
+    ; off limits / reverse speed
     neg.w   d4
     move.w  d4,h_speed(a4)
-    bra.b   .no_horizonal
+    bra.b   .no_horizontal
     
 enemy_try_vertical
     move.w  d2,d0
@@ -3604,15 +3684,19 @@ play_loop_fx
 .nosfx
     rts
     
-; what: sets game state when a power pill has been taken
+; what: sets game state when all 4 corners are completed
 ; trashes: A0,A1,D0,D1
-power_pill_taken
+all_four_corners_done
     move.l  d2,-(a7)
-    ; resets next ghost eaten score
-    clr.w  next_ghost_iteration_score
+    ; resets next enemy eaten score
+    clr.w  next_enemy_iteration_score
 
-    ; TODO change music
-    
+    ; change music
+    move.l  #2,d0
+    bsr play_music
+    move.w  #POWER_SONG_LENGTH,power_song_countdown
+    ; timer depends on level I suppose...
+    move.w  #POWER_SONG_LENGTH*2+POWER_SONG_LENGTH/2,power_state_counter
     lea enemies(pc),a0
     moveq.w  #3,d0
 .gloop
@@ -3716,6 +3800,8 @@ update_player
     beq.b   .out        ; nothing is currently pressed: optimize
     btst    #JPB_BTN_RED,d0
     beq.b   .no_jump
+    tst.w   power_state_counter
+    bne.b   .no_jump    ; can't jump when power state is active
     move.b  nb_stars(pc),d1
     beq.b   .no_jump
 
@@ -5117,7 +5203,7 @@ last_ghost_eaten_state_timer
     dc.w    0
 fruit_score_index:
     dc.w    0
-next_ghost_iteration_score
+next_enemy_iteration_score
     dc.w    0
 previous_player_address
     dc.l    0
@@ -5160,6 +5246,8 @@ cheat_keys
 death_frame_offset
     dc.w    0
 
+power_state_counter
+    dc.w    0
 ; move every 10 ticks
 bonus_level_lane_select_subcounter:
     dc.w    0
@@ -5202,16 +5290,12 @@ music_playing:
     dc.b    0
 pause_flag
     dc.b    0
-dot_positions
-    ds.b    6,0
 quit_flag
     dc.b    0
 elroy_mode_lock:
     dc.b    0
 
 
-nb_dots_eaten
-    dc.b    0
 invincible_cheat_flag
     dc.b    0
 infinite_lives_cheat_flag
@@ -5229,7 +5313,8 @@ delete_last_star_message
 
     even
 
-    
+power_song_countdown
+     dc.w   0
 bonus_score_display_message:
     dc.w    0
 extra_life_message:
@@ -5643,7 +5728,8 @@ rect_backup_plane
     ds.b    SCREEN_PLANE_SIZE
 dot_table
     ds.b    NB_TILES_PER_LINE*NB_TILE_LINES*16
-    
+paint_table
+    ds.b    NB_TILE_LINES*NB_TILES_PER_LINE
     even
     
     

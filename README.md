@@ -34,6 +34,15 @@ ISSUES:
 - level 1: thief almost 8 loops: attacks
 - level 2: thief almost 7 loops: attacks
 - so on...
+- rip extra life sound
+- rip thief attack sound
+- thief attack pauses, then more or less random, then follow
+- highscore table: duplicate highscore from actual table
+- enemy speed increasing
+- number of enemies increasing
+- amidar movement: not always same side: each crossing is taken
+- killed on horiz: hanging, killed on vertical: falling
+- blink pink / blink like cattle thief
 
 CREDITS:
 
