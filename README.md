@@ -40,7 +40,6 @@ ISSUES:
 - highscore table: duplicate highscore from actual table
 - enemy speed increasing
 - number of enemies increasing
-- amidar movement: not always same side: each crossing is taken
 - killed on horiz: hanging, killed on vertical: falling
 - blink pink / blink like cattle thief
 

@@ -62,9 +62,8 @@ INTERRUPTS_ON_MASK = $E038
 	STRUCTURE	Ghost,0
 	STRUCT      BaseCharacter2,Character_SIZEOF
 	STRUCT      palette,SpritePalette_SIZEOF
+
     APTR     frame_table
-    APTR     frightened_ghost_white_frame_table
-    APTR     frightened_ghost_blue_frame_table
     APTR     copperlist_address
     APTR     color_register
     UWORD    mode_timer     ; number of 1/50th to stay in the current mode
@@ -97,7 +96,7 @@ Execbase  = 4
 DIRECT_GAME_START
 
 ; test bonus screen 
-BONUS_SCREEN_TEST
+;BONUS_SCREEN_TEST
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -781,17 +780,10 @@ hide_enemy_sprites:
     dbf d1,.emptyspr
     rts
 
-; < A0: ghost structure
-set_normal_ghost_palette
-    move.l  a1,-(a7)
-    move.l  color_register(a0),a1
-    ; set/reset palette
-    move.l  palette(a0),(a1)+
-    move.l  palette+4(a0),(a1)
-    move.l  (a7)+,a1
-    rts
-    
 
+
+
+    
 init_enemies
     move.b  d0,d4
     lea enemies+Enemy_SIZEOF(pc),a0
@@ -799,12 +791,16 @@ init_enemies
     
     ; palette depends on the level number
     lea alt_sprite_palette(pc),a3  ; the sprite part of the color palette 16-31
+    move.l #cattle_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
+    move.l #cattle_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
     tst.b   bonus_sprites
     bne.b   .rustler
     move.w  level_number(pc),d0
     btst    #0,d0
     bne.b   .rustler
     lea game_palette+32(pc),a3  ; the sprite part of the color palette 16-31
+    move.l #police_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
+    move.l #police_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
 .rustler
     ; shared settings
     moveq   #6,d7
@@ -827,7 +823,6 @@ init_enemies
     move.l (a3)+,palette+4(a0)
     move.l  a4,color_register(a0)
     ; set/reset palette
-    bsr set_normal_ghost_palette
     
     addq.l  #8,a4   ; next color register range
     move.l  a1,copperlist_address(a0)
@@ -872,6 +867,8 @@ init_enemies
 	move.w	#Y_MAX,ypos(a0)
 	move.w	#X_MAX,xpos(a0)
 
+    ; all enemies normal palette
+    bsr set_enemy_normal_palette
 
     ; specific settings
     tst.b   bonus_sprites
@@ -1185,47 +1182,10 @@ draw_enemies_normal
     move.w  frame(a0),d2
     
     lsr.w   #2,d2   ; 8 divide to get 0,1
-    cmp.w   #MODE_FRIGHT,d3
-    bne.b   .no_fright
-    ; change palette for that sprite
-    move.w  mode_timer(a0),d4
-
-    cmp.w   flash_timer(a0),d4
-    bcc.b   .no_flashing        ; flashing if mode_timer is below flash_timer
-    ; now check the flash toggle
-    move.w  flash_toggle_timer(a0),d4
-    addq.w  #1,d4
-    cmp.w   #NB_FLASH_FRAMES,d4
-    bne.b   .no_toggle
-    clr.w   d4
-    eor.b   #1,flashing_as_white(a0)
-.no_toggle
-    move.w  d4,flash_toggle_timer(a0)
-.no_flashing
-    lea     frightened_enemies_blue_palette(pc),a2
-    ; select proper palette (blue/white)
-    tst.b   flashing_as_white(a0)
-    beq.b   .no_white
-    ; white flashing
-    lea     frightened_enemies_white_palette(pc),a2
-.no_white
-    bra.b   .fright
-.no_fright
-    bra.b   .no_white2
-.fright
-    ; select proper fright sprite
-    move.l  frightened_ghost_blue_frame_table(a0),a1
-    tst.b   flashing_as_white(a0)
-    beq.b   .no_white2
-    move.l  frightened_ghost_white_frame_table(a0),a1    
-.no_white2
     bclr    #0,d2   ; even
     add.w   d2,d2       ; times 2
 .end_anim
-    ; directly change color registers for that sprite
-;    move.l  color_register(a0),a3
-;    move.l  (a2)+,(a3)+
-;    move.l  (a2)+,(a3)+
+
 .get_frame
     ; get proper frame from proper frame set
     move.l  (a1,d2.w),a1
@@ -2927,6 +2887,8 @@ SONG_2_LENGTH = ORIGINAL_TICKS_PER_SEC*15+ORIGINAL_TICKS_PER_SEC/2-8
 BONUS_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*8
 POWER_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*4+ORIGINAL_TICKS_PER_SEC/2-6
 
+POWER_STATE_LENGTH = POWER_SONG_LENGTH*2+POWER_SONG_LENGTH/4
+
 ; what: updates game state
 ; args: none
 ; trashes: potentially all registers
@@ -3139,12 +3101,13 @@ update_all
     move.w  level_number(pc),d0
     btst    #0,d0
     beq.b   .copier_level
-    moveq.l #4,d0   ; start!! TEMP
+    ; ruslter level
+    moveq.l #4,d0
     bsr play_music
     move.w  #SONG_2_LENGTH,d0
     bra.b   .no_start_music
 .copier_level
-    moveq.l #0,d0   ; start!! TEMP
+    moveq.l #0,d0
     bsr play_music
     move.w  #SONG_1_LENGTH,d0
 .no_start_music
@@ -3153,7 +3116,43 @@ update_all
 .power_music
     subq.w  #1,d0
     move.w  d0,power_state_counter
-    beq.b   .normal_music
+    bne.b   .power_continues
+    ; reset enemies palette
+    bsr set_enemy_normal_palette
+    
+    bra.b   .normal_music
+.power_continues
+
+BLINK_BASE_TIME = POWER_SONG_LENGTH+POWER_SONG_LENGTH/2
+
+    
+    ; special values where we blink
+    cmp.w   #POWER_STATE_LENGTH-BLINK_BASE_TIME,d0
+    bne.b   .nb1
+.pb
+    ; first blink
+    bsr set_enemy_power_blink_palette
+    bra.b   .bend
+.nb1
+    cmp.w   #POWER_STATE_LENGTH-(BLINK_BASE_TIME+ORIGINAL_TICKS_PER_SEC/2),d0
+    bne.b   .nb2
+.pub
+    ; first blink, revert
+    bsr set_enemy_power_state_palette
+    bra.b   .bend
+.nb2
+    cmp.w   #POWER_STATE_LENGTH-(BLINK_BASE_TIME+ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2),d0
+    beq.b   .pb
+    cmp.w   #POWER_STATE_LENGTH-(BLINK_BASE_TIME+2*ORIGINAL_TICKS_PER_SEC),d0
+    beq.b   .pub
+    
+    cmp.w   #POWER_STATE_LENGTH-(BLINK_BASE_TIME+2*ORIGINAL_TICKS_PER_SEC+ORIGINAL_TICKS_PER_SEC/2),d0
+    beq.b   .pb
+    cmp.w   #POWER_STATE_LENGTH-(BLINK_BASE_TIME+3*ORIGINAL_TICKS_PER_SEC),d0
+    beq.b   .pub
+
+
+.bend
     ; power music countdown
     move.w  power_song_countdown(pc),d0
     subq.w  #1,d0
@@ -3765,17 +3764,61 @@ all_four_corners_done
     ; resets next enemy eaten score
     clr.w  next_enemy_iteration_score
 
+
     ; change music
     move.l  #2,d0
     bsr play_music
     move.w  #POWER_SONG_LENGTH,power_song_countdown
     ; timer depends on level I suppose...
-    move.w  #POWER_SONG_LENGTH*2+POWER_SONG_LENGTH/2,power_state_counter
-    lea enemies(pc),a0
-    moveq.w  #3,d0
-.gloop
+    move.w  #POWER_STATE_LENGTH,power_state_counter
 
+    bsr set_enemy_power_state_palette
     move.l (a7)+,d2
+    rts
+    
+set_enemy_power_state_palette
+    move.l  a2,-(a7)
+    lea enemies(pc),a0
+    move.l  fright_palette(pc),a2   ; same for all enemies
+    move.w  nb_enemies(pc),d0       ; plus one
+.gloop
+    move.l  color_register(a0),a1
+    ; set/reset palette
+    move.l  (a2),(a1)+
+    move.l  (4,a2),(a1)
+    add.w   #Enemy_SIZEOF,a0
+    dbf d0,.gloop
+    move.l  (a7)+,a2
+    rts
+    
+set_enemy_power_blink_palette
+    move.l  a2,-(a7)
+    lea enemies(pc),a0
+    move.l  fright_blink_palette(pc),a2   ; same for all enemies
+    move.w  nb_enemies(pc),d0       ; plus one
+.gloop
+    move.l  color_register(a0),a1
+    ; set/reset palette
+    move.l  (a2),(a1)+
+    move.l  (4,a2),(a1)
+    add.w   #Enemy_SIZEOF,a0
+    dbf d0,.gloop
+    move.l  (a7)+,a2
+    rts
+
+; < A0: ghost structure
+set_enemy_normal_palette
+    move.w  nb_enemies(pc),d0
+    lea enemies(pc),a0
+.gloop
+    move.l  a1,-(a7)
+    move.l  color_register(a0),a1
+    ; set/reset palette
+    move.l  palette(a0),(a1)+
+    move.l  palette+4(a0),(a1)
+    move.l  (a7)+,a1
+    add.w   #Enemy_SIZEOF,a0
+    dbf d0,.gloop
     rts
     
 update_player
@@ -5405,7 +5448,20 @@ fruit_score     ; must follow score_table
 loop_array:
     dc.l    0,0,0,0
     
-
+police_fright_palette
+    dc.w    $0000,$0f00,$00F0,$0ff0
+cattle_fright_palette
+    dc.w    $0000,$0f0,$f91,$0f00
+police_fright_blink_palette
+    dc.w    $0000,$0fFF,$0F00,$f91
+cattle_fright_blink_palette
+    dc.w    $0000,$0fff,$00ff,$0f00
+    
+fright_palette
+    dc.l    0
+fright_blink_palette
+    dc.l    0
+    
 player_kill_anim_table:
     REPT    NB_TICKS_PER_SEC/4
     dc.b    1
@@ -5754,10 +5810,6 @@ speeds_level21
 powerdots
     ds.l    4
 
-; palette is different for frightened enemies & eyes
-frightened_enemies_blue_palette
-    
-frightened_enemies_white_palette
     
 
 game_palette
