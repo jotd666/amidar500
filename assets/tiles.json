@@ -109,6 +109,13 @@
    "start_x":128,
    "start_y":16
  },
+{
+   "name":"police_kill",
+   "sprite_number":0,
+    "frames":1,
+   "start_x":192,
+   "start_y":16
+ },
  
  {
    "name":"cattle",

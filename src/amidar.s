@@ -66,12 +66,10 @@ INTERRUPTS_ON_MASK = $E038
     APTR     frame_table
     APTR     copperlist_address
     APTR     color_register
-    UWORD    mode_timer     ; number of 1/50th to stay in the current mode
+    UWORD    mode_timer     ; number of 1/50th to stay in the current mode (thief only)
     UWORD    mode           ; current mode
     UWORD    previous_mode           ; previous mode
-    UWORD    flash_timer
-    UWORD    flash_toggle_timer
-    UBYTE    flashing_as_white
+    UWORD    score_display_timer
     UBYTE    active
 	LABEL	 Enemy_SIZEOF
     
@@ -122,6 +120,8 @@ MODE_FRIGHT = 4<<2     ; enemies are killable
 MODE_HANG = 5<<2       ; enemies hang on the maze
 MODE_FALL = 6<<2       ; enemies fall down
 MODE_JUMP = 7<<2
+MODE_KILL = 8<<2
+MODE_KILLED = 9<<2
 
 ; --------------- end debug/adjustable variables
 
@@ -162,7 +162,7 @@ MSG_HIDE = 2
 NB_FLASH_FRAMES = 14
 
 ; matches the pac kill animation
-PLAYER_KILL_TIMER = NB_TICKS_PER_SEC+NB_TICKS_PER_SEC/2+(NB_TICKS_PER_SEC/8)*9+NB_TICKS_PER_SEC/4+NB_TICKS_PER_SEC
+PLAYER_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 GHOST_KILL_TIMER = (NB_TICKS_PER_SEC*5)/6
 
 
@@ -193,6 +193,14 @@ STATE_LIFE_LOST = 4*4
 STATE_INTRO_SCREEN = 5*4
 STATE_GAME_START_SCREEN = 6*4
 STATE_BONUS_SCREEN = 7*4
+
+
+; offset for enemy animations
+
+JUMP_FIRST_FRAME = police1_jump_frame_table-police1_frame_table
+HANG_FIRST_FRAME = police1_hang_frame_table-police1_frame_table
+KILL_FIRST_FRAME = police1_kill_frame_table-police1_frame_table
+FALL_FIRST_FRAME = police1_fall_frame_table-police1_frame_table
 
 ; jump table macro, used in draw and update
 DEF_STATE_CASE_TABLE:MACRO
@@ -639,6 +647,7 @@ init_new_play:
     ; global init at game start
     move.l  #demo_moves,record_data_pointer
     clr.l   replayed_input_state
+    clr.w   can_eat_enemies_mode_pending
     move.b  #4,nb_lives
     clr.b   extra_life_awarded
     clr.b    music_played
@@ -838,8 +847,7 @@ init_enemies
     neg.w   d1
     move.w  #1,v_speed(a0)
 
-    clr.b   flashing_as_white(a0)
-    
+   
     clr.w   turn_lock(a0)
 	move.w	#4,ypos(a0)
 	move.w	d0,xpos(a0)
@@ -963,7 +971,7 @@ init_player
     clr.w   fright_timer    
     move.b  #3,nb_stars
     move.w  #-1,jump_index
-    move.w  #4,jump_frame
+    move.w  #JUMP_FIRST_FRAME,jump_frame
     
     rts
     	    
@@ -1113,7 +1121,9 @@ draw_debug
 draw_enemies:
     tst.w  ghost_eaten_timer
     bmi.b   .no_ghost_eat
-    bsr hide_enemy_sprites
+
+    rts
+    
     
     ; store score
     lea player(pc),a4
@@ -1135,12 +1145,6 @@ draw_enemies:
     ; don't place sprites
     rts
 .no_ghost_eat
-    move.w  player_killed_timer(pc),d6
-    bmi.b   draw_enemies_normal
-    cmp.w   #PLAYER_KILL_TIMER-NB_TICKS_PER_SEC,d6
-    bcs.b   hide_sprites
-    ; clear the enemies sprites after 1 second when pacman is killed
-draw_enemies_normal
     lea enemies(pc),a0
     move.w  nb_enemies(pc),d7   ; +thief
 .gloop
@@ -1175,10 +1179,13 @@ draw_enemies_normal
     bne.b   .no_jump
     ; choose the frame among jump/hang/fall
     move.w  jump_frame(pc),d2
-    add.w   d2,d2
-    add.w   d2,d2
     bra.b   .get_frame
 .no_jump
+    cmp.w   #MODE_KILL,d3
+    bne.b   .no_kill
+    move.w  enemy_kill_frame(pc),d2
+    bra.b   .get_frame
+.no_kill
     move.w  frame(a0),d2
     
     lsr.w   #2,d2   ; 8 divide to get 0,1
@@ -1886,9 +1893,11 @@ draw_copyright
 clear_plane_any_cpu
     movem.l d0-D3/a0-a2,-(a7)
     lea mul40_table(pc),a2
-    add.w   d1,d1    
+    add.w   d1,d1
+    beq.b   .no_add
     move.w  (a2,d1.w),d1
     add.w   d1,a1
+.no_add
     move.l  a1,a0
 
     lsr.w   #3,d0
@@ -2034,6 +2043,8 @@ clear_plane_any_blitter_internal:
 
     
 draw_last_life:
+    ; TODO 
+    
     lea lives,a0
     move.b  nb_lives(pc),d3
     ext     d3
@@ -2098,17 +2109,17 @@ draw_stars:
         
 LIVES_OFFSET = (MAZE_HEIGHT+18)*NB_BYTES_PER_LINE+1
 draw_lives:
+   
     moveq.w #3,d7
     lea	screen_data+LIVES_OFFSET,a1
 .cloop
     move.l #NB_BYTES_PER_MAZE_LINE*8,d0
     moveq.l #0,d1
     move.l  #6,d2
-    bsr clear_plane_any_cpu
+    ;;bsr clear_plane_any_cpu
     add.w   #SCREEN_PLANE_SIZE,a1
     dbf d7,.cloop
     
-draw_lives_no_clear:
     move.b  nb_lives(pc),d7
     ext     d7
     subq.w  #2,d7
@@ -2751,7 +2762,9 @@ level2_interrupt:
 .no_debug
     cmp.b   #$54,d0     ; F5
     bne.b   .no_bonus
-    ; activate the "power pill" sequence
+    ; activate the "power pill" sequence only if enemies are "normal"
+    cmp.w  #MODE_NORMAL,enemies+Enemy_SIZEOF+mode
+    bne.b   .no_bonus
     bsr all_four_corners_done
     bra.b   .no_playing
 .no_bonus
@@ -3090,7 +3103,12 @@ update_all
 .dec
     bsr update_player
     bsr update_enemies
-
+    
+    tst.w   player_killed_timer
+    bpl.b   .skip_a_lot     ; player killed, no music management, no collisions
+    
+    bsr check_collisions
+    
     move.w   power_state_counter(pc),d0
     bne.b   .power_music
     
@@ -3117,10 +3135,23 @@ update_all
     subq.w  #1,d0
     move.w  d0,power_state_counter
     bne.b   .power_continues
+.skip_a_lot
     ; reset enemies palette
     bsr set_enemy_normal_palette
-    
-    bra.b   .normal_music
+    ; restore enemies previous state
+    lea enemies(pc),a0
+    move.w  nb_enemies(pc),d7
+.gloop
+    cmp.w   #MODE_FRIGHT,mode(a0)
+    bne.b   .no_restore
+    move.w  previous_mode(a0),mode(a0)
+.no_restore
+    add.w   #Enemy_SIZEOF,a0
+    dbf d7,.gloop
+    tst.w   player_killed_timer
+    bmi.b   .normal_music     ; player killed, no music management
+    move.w  #1,.start_music_countdown       ; restart music as soon as new life starts
+    bra.b   .music_out
 .power_continues
 
 BLINK_BASE_TIME = POWER_SONG_LENGTH+POWER_SONG_LENGTH/2
@@ -3171,35 +3202,27 @@ BLINK_BASE_TIME = POWER_SONG_LENGTH+POWER_SONG_LENGTH/2
 
 
     rts
-.update_player_and_enemies
 
-    
-
-    bra check_pac_enemies_collisions
    
 .start_music_countdown
     dc.w    0
 
-; is done after both pacman & enemies have been updated, maybe allowing for the
-; "pass-through" bug at higher levels
-check_pac_enemies_collisions
-    tst.w   player_killed_timer
-    bmi.b   .check
-    rts
-.check
+COLLISION_SHIFTING_PRECISION = 3
+
+check_collisions
     lea player(pc),a3
     move.w  xpos(a3),d0
     move.w  ypos(a3),d1
-    lsr.w   #3,d0
-    lsr.w   #3,d1
+    lsr.w   #COLLISION_SHIFTING_PRECISION,d0
+    lsr.w   #COLLISION_SHIFTING_PRECISION,d1
     
     lea enemies(pc),a4
-    moveq.w #3,d7
+    move.w  nb_enemies(pc),d7    ; plus one
 .gloop
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
-    lsr.w   #3,d2
-    lsr.w   #3,d3
+    lsr.w   #COLLISION_SHIFTING_PRECISION,d2
+    lsr.w   #COLLISION_SHIFTING_PRECISION,d3
     cmp.w   d2,d0
     bne.b   .nomatch
     cmp.w   d3,d1
@@ -3218,21 +3241,30 @@ check_pac_enemies_collisions
     ; player is killed
     tst.b   invincible_cheat_flag
     bne.b   .nomatch    
+    move.w  #MODE_KILL,mode(a4)
     move.w  #PLAYER_KILL_TIMER,player_killed_timer
+    clr.w   enemy_kill_timer
+    bsr stop_sounds
+    lea     player_killed_sound(pc),a0
+    bsr     play_fx
+    
     rts
 
+.pac_eats_ghost:   
     
-.pac_eats_ghost:
-a_ghost_was_eaten:
-    move.w  #MODE_HANG,mode(a4)
+    ; depending on the x coordinate, hang or fall
+    move.w  #MODE_KILLED,mode(a4)
+    move.w  #ORIGINAL_TICKS_PER_SEC,score_display_timer(a4)
+    
     ; test display score with the proper color (reusing pink sprite palette)
     move.w  #GHOST_KILL_TIMER,ghost_eaten_timer
+    
     cmp.w   #STATE_PLAYING,current_state
     bne.b   .no_sound
-    ;lea     ghost_eaten_sound(pc),a0
-    ;bsr     play_fx
+    lea     enemy_killed_sound(pc),a0
+    bsr     play_fx
 .no_sound
-    
+
     move.w  next_enemy_iteration_score(pc),d0
     add.w   #1,next_enemy_iteration_score
     add.w   d0,d0
@@ -3421,12 +3453,20 @@ update_intro_screen
     
 update_enemies:
     lea enemies(pc),a4
+    tst.w   can_eat_enemies_mode_pending
+    beq.b   .no_eat_mode_pending
+    ; test if not jumping
+    cmp.w   #MODE_JUMP,mode(a4)
+    beq.b   .no_eat_mode_pending
+    clr.w   can_eat_enemies_mode_pending
+    bsr     all_four_corners_done
+.no_eat_mode_pending
+    
     move.w nb_enemies(pc),d7
-    ;;move.w  #1,d7     ; only thief + one police
     move.w  player_killed_timer(pc),d6
     bmi.b   .gloop
     subq.w  #1,player_killed_timer
-    bne.b   .glkill
+    bne.b   .gloop
     ; end current life & restart
     move.w  #STATE_LIFE_LOST,current_state
     rts
@@ -3438,13 +3478,17 @@ update_enemies:
     
 .gloop
     move.w  mode(a4),d0
-    lea     enemy_move_table(pc),a0
-    move.l  (a0,d0.w),a0
-    jsr (a0)
+    bsr     move_according_to_mode
     add.w   #Enemy_SIZEOF,a4
     dbf d7,.gloop
     rts
 
+; < D0: mode
+move_according_to_mode
+    lea     enemy_move_table(pc),a0
+    move.l  (a0,d0.w),a0
+    jmp (a0)
+     
 animate_enemy
     move.w  frame(a4),d1
     addq.w  #1,d1
@@ -3460,6 +3504,9 @@ enemy_move_table
     dc.l    move_hang
     dc.l    move_fall
     dc.l    move_jump
+    dc.l    move_kill
+    dc.l    move_killed
+
 
 BREAKIF:MACRO
     cmp.w   #\1,d2
@@ -3742,9 +3789,35 @@ move_border_patrol
 .up
     move.l  #$0000FFFF,h_speed(a4)   ; change to up
     bra.b   .retry
-    
-move_chase    
+
 move_fright
+    move.w  previous_mode(a4),d0
+    bra move_according_to_mode
+    
+move_killed
+    ; just display score for a while, decrease a counter
+    ; then change to fall or hang
+    rts
+move_kill:
+    move.w  enemy_kill_timer(pc),d0
+    addq.w  #1,d0
+    cmp.w   #10,d0
+    bne.b   .no_change
+    clr.w   d0
+    move.w  enemy_kill_frame(pc),d1
+    cmp.w   #KILL_FIRST_FRAME+4,d1
+    beq.b   .2
+    move.w  #KILL_FIRST_FRAME+4,d1
+    bra.b   .out
+.2
+    move.w  #KILL_FIRST_FRAME,d1
+.out
+    move.w  d1,enemy_kill_frame
+.no_change
+    move.w  d0,enemy_kill_timer
+    rts
+    
+move_chase
 move_hang    
 move_fall  
     rts
@@ -3758,13 +3831,20 @@ play_loop_fx
     rts
     
 ; what: sets game state when all 4 corners are completed
-; trashes: A0,A1,D0,D1
+; trashes: A0,D0
 all_four_corners_done
-    move.l  d2,-(a7)
+    movem.l  d1-d2/a1,-(a7)
     ; resets next enemy eaten score
     clr.w  next_enemy_iteration_score
 
-
+    lea enemies(pc),a0
+    move.w  nb_enemies(pc),d7
+.gloop
+    move.w  mode(a0),previous_mode(a0)
+    move.w  #MODE_FRIGHT,mode(a0)
+    add.w   #Enemy_SIZEOF,a0    
+    dbf d7,.gloop
+    
     ; change music
     move.l  #2,d0
     bsr play_music
@@ -3773,7 +3853,7 @@ all_four_corners_done
     move.w  #POWER_STATE_LENGTH,power_state_counter
 
     bsr set_enemy_power_state_palette
-    move.l (a7)+,d2
+    movem.l (a7)+,d1-d2/a1
     rts
     
 set_enemy_power_state_palette
@@ -3828,23 +3908,19 @@ update_player
 
     move.w  player_killed_timer(pc),d6
     bmi.b   .alive
-    moveq.w #0,d0
-    move.w  #PLAYER_KILL_TIMER-NB_TICKS_PER_SEC,d5
-    sub.w   d6,d5
-    bne.b   .no_sound
-    lea killed_sound(pc),a0
-    bsr play_fx
+    moveq.w #8,d0
+    cmp.w   #2*PLAYER_KILL_TIMER/3,d6
+    bcs.b   .no_first_frame
+    moveq.w #4,d0
     bra.b   .frame_done
-.no_sound
-    bcs.b   .frame_done     ; frame 0
+.no_first_frame
+    cmp.w   #PLAYER_KILL_TIMER/3,d6
+    bcs.b   .no_second_frame
+    moveq.w #0,d0
+.no_second_frame
 
-    ; d5 is the timer starting from 0
-    lea player_kill_anim_table(pc),a0
-    move.b  (a0,d5.w),d0
-
-    lsl.w   #2,d0   ; times 4
-    move.w  d0,death_frame_offset
 .frame_done    
+    move.w  d0,death_frame_offset   ; 0,4,8
     rts
 .alive
     tst.w   fright_timer
@@ -4222,12 +4298,12 @@ DRAW_RECT_LINE_OR:MACRO
     ENDM
 
 enemies_jump
-    ; cycle jump frames
+    ; cycle jump frames for each jump
     move.w  jump_frame(pc),d7
-    add.w   #1,d7
-    cmp.w   #4+7,d7
+    add.w   #4,d7       ; four by four avoids shifting to get offset
+    cmp.w   #JUMP_FIRST_FRAME+7*4,d7
     bne.b   .nowrap
-    move.w  #4,d7
+    move.w  #JUMP_FIRST_FRAME,d7
 .nowrap
     move.w  d7,jump_frame
     
@@ -4264,8 +4340,8 @@ count_dot
     beq.b   .no_specrect
     subq.b  #1,nb_special_rectangles
     bne.b   .no_specrect
-    ; TODO: can eat enemies
-    blitz
+    ; can eat enemies
+    move.w  #1,can_eat_enemies_mode_pending
 .no_specrect
     ; plane inc.8,8 offset
     lea screen_data+1+(8*NB_BYTES_PER_LINE),a1
@@ -4371,21 +4447,6 @@ draw_player:
     bne.b   .not_first_draw
     moveq.l #-1,d5
 .not_first_draw
-    lea     player(pc),a2
-    tst.w  ghost_eaten_timer
-    bmi.b   .normal_pacdraw
-    lea     empty_16x16_bob,a0
-    bra.b   .pacblit
-.normal_pacdraw
-    tst.w  player_killed_timer
-    bmi.b   .normal
-    lea     copier_dead,a0
-    move.w  death_frame_offset(pc),d0
-    add.w   d0,a0       ; proper frame to blit
-    move.l  (a0),a0
-    bra.b   .pacblit
-
-.normal
     ; first, restore plane 0
     tst.l   d5    
     bmi.b   .no_erase
@@ -4402,6 +4463,16 @@ draw_player:
     ENDR
 
 .no_erase
+
+    lea     player(pc),a2
+    tst.w  player_killed_timer
+    bmi.b   .normal
+    lea     copier_dead_table,a0
+    move.w  death_frame_offset(pc),d0
+    add.w   d0,a0       ; proper frame to blit
+    move.l  (a0),a0
+    bra.b   .pacblit
+.normal
 
     move.w  direction(a2),d0
     lea  copier_dir_table(pc),a0
@@ -5347,6 +5418,8 @@ extra_life_sound_timer
 ; 0: level 1
 level_number:
     dc.w    0
+enemy_kill_timer
+    dc.w    0
 player_killed_timer:
     dc.w    -1
 ghost_eaten_timer:
@@ -5388,7 +5461,11 @@ jump_index
     dc.w   0
 jump_frame
     dc.w    0
+enemy_kill_frame
+    dc.w    0
 maze_outline_color
+    dc.w    0
+can_eat_enemies_mode_pending
     dc.w    0
 maze_fill_color
     dc.w    0
@@ -5463,41 +5540,14 @@ fright_blink_palette
     dc.l    0
     
 player_kill_anim_table:
-    REPT    NB_TICKS_PER_SEC/4
+    REPT    ORIGINAL_TICKS_PER_SEC/2
+    dc.b    0
+    ENDR
+    REPT    ORIGINAL_TICKS_PER_SEC/2
     dc.b    1
     ENDR
-    REPT    NB_TICKS_PER_SEC/8
+    REPT    ORIGINAL_TICKS_PER_SEC/2
     dc.b    2
-    ENDR
-    REPT    NB_TICKS_PER_SEC/8
-    dc.b    3
-    ENDR
-    REPT    NB_TICKS_PER_SEC/8
-    dc.b    4
-    ENDR
-    REPT    NB_TICKS_PER_SEC/8
-    dc.b    5
-    ENDR
-    REPT    NB_TICKS_PER_SEC/8
-    dc.b    6
-    ENDR
-    REPT    NB_TICKS_PER_SEC/8
-    dc.b    7
-    ENDR
-    REPT    NB_TICKS_PER_SEC/8
-    dc.b    8
-    ENDR
-    REPT    NB_TICKS_PER_SEC/8
-    dc.b    9
-    ENDR
-    REPT    NB_TICKS_PER_SEC/8
-    dc.b    10
-    ENDR
-    REPT    NB_TICKS_PER_SEC/4
-    dc.b    11
-    ENDR
-    REPT    NB_TICKS_PER_SEC+NB_TICKS_PER_SEC/4
-    dc.b    11		; TEMP
     ENDR
     even
     
@@ -5748,7 +5798,6 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
     SOUND_ENTRY player_killed,2,SOUNDFREQ
-    SOUND_ENTRY killed,1,SOUNDFREQ
     SOUND_ENTRY credit,1,SOUNDFREQ
     SOUND_ENTRY eat,3,SOUNDFREQ
     SOUND_ENTRY ping,3,SOUNDFREQ
@@ -5958,11 +6007,8 @@ copier_dead_1
     incbin  "copier_dead_1.bin"
 copier_dead_2
     incbin  "copier_dead_2.bin"
-copier_dead
+copier_dead_table
     dc.l    copier_dead_0,copier_dead_1,copier_dead_2
-    dc.l    copier_dead_0,copier_dead_1,copier_dead_2
-    dc.l    copier_dead_0,copier_dead_1,copier_dead_2
-    dc.l    empty_16x16_bob
 
 
 rustler_left_0
@@ -5987,14 +6033,12 @@ rustler_dead_1
     incbin  "rustler_dead_1.bin"
 rustler_dead_2
     incbin  "rustler_dead_2.bin"
+rustler_dead_table
+    dc.l    rustler_dead_0,rustler_dead_1,rustler_dead_2
 
 empty_16x16_bob
     ds.b    64*4,0
-rustler_dead
-    dc.l    rustler_dead_0,rustler_dead_1,rustler_dead_2
-    dc.l    rustler_dead_0,rustler_dead_1,rustler_dead_2
-    dc.l    rustler_dead_0,rustler_dead_1,rustler_dead_2
-    dc.l    empty_16x16_bob
+
 lives
     incbin  "life.bin"
 star
@@ -6002,10 +6046,6 @@ star
 
 
 
-
-
-  
-    
     
 DECL_POLICE:MACRO
 \1_frame_table:
@@ -6022,6 +6062,10 @@ DECL_POLICE:MACRO
     dc.l    \1_hang_0
     dc.l    \1_hang_1
 \1_hang_end_frame_table:
+\1_kill_frame_table:
+    dc.l    \1_kill_0
+    dc.l    \1_kill_1
+\1_kill_end_frame_table:
 \1_fall_frame_table:
     dc.l    \1_fall_0
     dc.l    \1_fall_1
@@ -6064,6 +6108,7 @@ DECL_POLICE:MACRO
     dc.l    0
     incbin  "police_jump_1.bin"
     dc.l    0
+\1_kill_0
 \1_fall_0
     dc.l    0
     incbin  "police_fall_0.bin"
@@ -6079,6 +6124,10 @@ DECL_POLICE:MACRO
 \1_fall_3
     dc.l    0
     incbin  "police_fall_3.bin"
+    dc.l    0
+\1_kill_1
+    dc.l    0
+    incbin  "police_kill.bin"
     dc.l    0
 
 
@@ -6197,10 +6246,7 @@ score_5000:
     incbin  "scores_5000.bin"
     dc.l    0
 
-killed_raw
-    incbin  "pacman_killed.raw"
-    even
-killed_raw_end
+
 credit_raw
     incbin  "credit.raw"
     even
