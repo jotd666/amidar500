@@ -42,7 +42,6 @@ ISSUES:
 - number of enemies increasing
 - killed on horiz: hanging, killed on vertical: falling
 - enemy killed score 1 score per enemy sprite. or blit score in white
-- dead: refresh filled square: redraw that plane
 
 CREDITS:
 

@@ -70,7 +70,8 @@ INTERRUPTS_ON_MASK = $E038
     UWORD    mode           ; current mode
     UWORD    previous_mode           ; previous mode
     UWORD    score_display_timer
-    UBYTE    active
+    UWORD    fall_hang_timer
+    UWORD    hang_toggle
 	LABEL	 Enemy_SIZEOF
     
     ;Exec Library Base Offsets
@@ -814,7 +815,6 @@ init_enemies
     moveq   #6,d7
     ; clear all enemies
 .cloop
-    clr.b   active(a0)
     add.w   #Enemy_SIZEOF,a0
     dbf d7,.cloop
     
@@ -826,7 +826,6 @@ init_enemies
     lea enemies+Enemy_SIZEOF(pc),a0
 .igloop
     ; copy all 4 colors (back them up)
-    st.b    active(a0)
     move.l (a3)+,palette(a0)
     move.l (a3)+,palette+4(a0)
     move.l  a4,color_register(a0)
@@ -860,7 +859,6 @@ init_enemies
     ; thief
     
     lea     enemies,a0
-    st.b    active(a0)
     move.l (a3)+,palette(a0)
     move.l (a3)+,palette+4(a0)
     move.l  a4,color_register(a0)
@@ -1119,9 +1117,6 @@ draw_debug
         even
 
 draw_enemies:
-
-
-.no_ghost_eat
     lea enemies(pc),a0
     move.w  nb_enemies(pc),d7   ; +thief
 .gloop
@@ -1140,13 +1135,16 @@ draw_enemies:
 .draw_enemy
     move.w  xpos(a0),d0
     addq.w  #2,d0       ; compensate
-.do_display
+    move.w  mode(a0),d3 ; normal/chase/fright/fall..
     move.w  ypos(a0),d1
     addq.w  #3,d1   ; compensate
+    cmp.w   #MODE_HANG,d3
+    bne.b   .no_hang1
+    addq.w  #8,d1   ; compensate
+.no_hang1    
     ; center => top left
     bsr store_sprite_pos
-.ssp
-    move.w  mode(a0),d3 ; normal/chase/fright/fall..
+
 
 
     cmp.w   #MODE_KILLED,d3
@@ -1160,6 +1158,15 @@ draw_enemies:
     lea     palette(a0),a2      ; normal ghost colors
 
     move.l  frame_table(a0),a1
+
+    cmp.w   #MODE_HANG,d3
+    bne.b   .no_hang
+    addq.w  #8,d1   ; compensate
+    move.w  hang_toggle(a0),d2
+    add.w   #HANG_FIRST_FRAME,d2
+    
+    bra.b   .get_frame
+.no_hang
 
     cmp.w   #MODE_JUMP,d3
     bne.b   .no_jump
@@ -3125,16 +3132,7 @@ update_all
 .skip_a_lot
     ; reset enemies palette
     bsr set_enemy_normal_palette
-    ; restore enemies previous state
-    lea enemies(pc),a0
-    move.w  nb_enemies(pc),d7
-.gloop
-    cmp.w   #MODE_FRIGHT,mode(a0)
-    bne.b   .no_restore
-    move.w  previous_mode(a0),mode(a0)
-.no_restore
-    add.w   #Enemy_SIZEOF,a0
-    dbf d7,.gloop
+
     tst.w   player_killed_timer
     bmi.b   .normal_music     ; player killed, no music management
     move.w  #1,.start_music_countdown       ; restart music as soon as new life starts
@@ -3516,7 +3514,7 @@ move_jump
 ; todo: loop according to instant speed, ATM speed=1
 move_normal
     bsr animate_enemy
-
+    
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
     move.w   h_speed(a4),d4
@@ -3776,7 +3774,9 @@ move_border_patrol
     bra.b   .retry
 
 move_fright
+    bsr reset_mode
     move.w  previous_mode(a4),d0
+
     bra move_according_to_mode
     
 move_killed
@@ -3784,12 +3784,29 @@ move_killed
     ; then change to fall or hang
     subq.w  #1,score_display_timer(a4)
     bne.b   .keep_going
-    ; now get x coord and see if it's close to vertical lanes
-    ; TODO
+    ; now get x coord and see if it's close to vertical lanes    
     move.w  xpos(a4),d0
+    lea hangfall_table(pc),a0
+    add.w   d0,d0
+    move.w  (a0,d0.w),mode(a4)
+    ; init timers & flags
+    clr.w   fall_hang_timer(a4)
+    clr.w   hang_toggle(a4)
+    rts
+    
     
 .keep_going
     rts
+
+; close to vertical lines: fall, else hang
+hangfall_table:
+    REPT    5
+    dc.w	MODE_FALL,MODE_FALL,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG
+    dc.w    MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG
+    dc.w    MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG
+    dc.w    MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG
+    dc.w    MODE_HANG,MODE_HANG,MODE_FALL,MODE_FALL
+    ENDR
     
 move_kill:
     ; animating the enemy killing the player
@@ -3812,9 +3829,38 @@ move_kill:
     rts
     
 move_chase
-move_hang    
-move_fall  
     rts
+move_hang
+    tst.w   power_state_counter
+    bne.b   .power
+    ; no power state, reset old mode
+    move.w  previous_mode(a4),mode(a4)
+.power
+    ; does nothing, just increases timer for hang animation
+    move.w  fall_hang_timer(a4),d0
+    addq.w  #1,d0
+    cmp.w   #30,d0
+    bne.b   .no_change
+    clr.w   d0
+    eor.w  #4,hang_toggle(a4)
+.no_change
+    move.w  d0,fall_hang_timer(a4)
+    rts
+
+move_fall
+    ; todo: fall and crater
+    ; maybe another timer/flag is needed or not: y pos = 200: crash
+    ; use timer to animate    
+    rts
+
+reset_mode
+    tst.w   power_state_counter
+    bne.b   .power
+    ; no power state, reset old mode
+    move.w  previous_mode(a4),mode(a4)
+.power
+    rts
+    
     
 play_loop_fx
     tst.b   demo_mode
