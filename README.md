@@ -41,7 +41,8 @@ ISSUES:
 - enemy speed increasing
 - number of enemies increasing
 - killed on horiz: hanging, killed on vertical: falling
-- blink pink / blink like cattle thief
+- enemy killed score 1 score per enemy sprite. or blit score in white
+- dead: refresh filled square: redraw that plane
 
 CREDITS:
 

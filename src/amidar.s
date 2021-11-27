@@ -163,7 +163,7 @@ NB_FLASH_FRAMES = 14
 
 ; matches the pac kill animation
 PLAYER_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
-GHOST_KILL_TIMER = (NB_TICKS_PER_SEC*5)/6
+ENEMY_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 
 
 ; direction enumerates, follows order of enemies in the sprite sheet
@@ -454,7 +454,6 @@ intro:
 
     bsr wait_bof
 
-    ;bsr draw_maze
     move.w  #STATE_BONUS_SCREEN,current_state
     move.w #INTERRUPTS_ON_MASK,intena(a5)
     
@@ -479,12 +478,14 @@ intro:
 .new_life
     moveq.l #1,d0
 .from_level_start
-    
+    move.b  d0,new_life_restart ; used by init player
     bsr init_enemies
     bsr init_player
     
     bsr wait_bof
 
+    tst.b   new_life_restart
+    bne.b   .nodots
     bsr draw_maze
     move.w  level_number(pc),d0
     btst    #0,d0
@@ -527,10 +528,7 @@ intro:
     move.l  #1,state_timer
     bra.b   .game_over
 .no_demo
-    ; life lost, make next start a little easier by
-    ; locking elroy mode
-    st.b    elroy_mode_lock
-    
+   
     tst.b   infinite_lives_cheat_flag
     bne.b   .new_life
     subq.b   #1,nb_lives
@@ -649,6 +647,7 @@ init_new_play:
     clr.l   replayed_input_state
     clr.w   can_eat_enemies_mode_pending
     move.b  #4,nb_lives
+    clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
     move.w  #START_LEVEL-1,level_number
@@ -922,10 +921,11 @@ init_enemies
 init_player
     clr.l   previous_valid_direction
     clr.w   death_frame_offset
-    clr.l   previous_player_address   ; no previous mspacman position
-    ; if there was a bonus running, remove it
+    tst.b   new_life_restart
+    bne.b   .no_clear
+    clr.l   previous_player_address   ; no previous position
+.no_clear
 
-    
     lea player(pc),a0
 
     move.l  #maze_1_wall_table,maze_wall_table      ; temp depends on level
@@ -1119,31 +1119,8 @@ draw_debug
         even
 
 draw_enemies:
-    tst.w  ghost_eaten_timer
-    bmi.b   .no_ghost_eat
 
-    rts
-    
-    
-    ; store score
-    lea player(pc),a4
-    move.l  score_frame(pc),a0
-    move.w  xpos(a4),d0
-    sub.w   #24,d0
-    move.w  ypos(a4),d1
-    sub.w   #30,d1
-    bsr store_sprite_pos      
-    move.l  d0,(a0)
-    lea score_sprite_entry,a1
-    move.l  a0,d2
-    move.w  d2,(6,a1)
-    swap    d2
-    move.w  d2,(2,a1)
-    ; change color for score, ghost has disappeared anyway
 
-    move.w  #$00ff,_custom+color+32+8+2
-    ; don't place sprites
-    rts
 .no_ghost_eat
     lea enemies(pc),a0
     move.w  nb_enemies(pc),d7   ; +thief
@@ -1169,8 +1146,17 @@ draw_enemies:
     ; center => top left
     bsr store_sprite_pos
 .ssp
-    move.w  mode(a0),d3 ; normal/chase/fright/fall
+    move.w  mode(a0),d3 ; normal/chase/fright/fall..
 
+
+    cmp.w   #MODE_KILLED,d3
+    bne.b   .next
+    move.l  score_frame(pc),a1  ; todo one per enemy  
+    bra.b   .store_sprite_pos
+    ; we cannot have white color for score
+    ; that would trash the other enemy
+    ;;move.w  #$00ff,_custom+color+32+8+2
+.next
     lea     palette(a0),a2      ; normal ghost colors
 
     move.l  frame_table(a0),a1
@@ -1197,7 +1183,7 @@ draw_enemies:
     ; get proper frame from proper frame set
     move.l  (a1,d2.w),a1
     ; now if D6 is non-zero, handle shift
-
+.store_sprite_pos
     move.l  d0,(a1)     ; store control word
     move.l  a1,d2    
     move.l  copperlist_address(a0),a1
@@ -1922,7 +1908,7 @@ clear_plane_any_cpu
     rts
 
 .even
-    ; odd address
+    ; even address
     move.w  #15,d0
     lsr.w   #2,d2
     beq.b   .out    ; < 4 not supported
@@ -2109,14 +2095,13 @@ draw_stars:
         
 LIVES_OFFSET = (MAZE_HEIGHT+18)*NB_BYTES_PER_LINE+1
 draw_lives:
-   
     moveq.w #3,d7
     lea	screen_data+LIVES_OFFSET,a1
 .cloop
-    move.l #NB_BYTES_PER_MAZE_LINE*8,d0
+    moveq.l #0,d0
     moveq.l #0,d1
     move.l  #6,d2
-    ;;bsr clear_plane_any_cpu
+    bsr clear_plane_any_cpu
     add.w   #SCREEN_PLANE_SIZE,a1
     dbf d7,.cloop
     
@@ -2204,7 +2189,9 @@ draw_maze:
     
     lea screen_data,a1
     bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE*2,a1
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bsr clear_playfield_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
     bsr clear_playfield_plane
     add.w   #SCREEN_PLANE_SIZE,a1
     bsr clear_playfield_plane
@@ -3253,11 +3240,9 @@ check_collisions
 .pac_eats_ghost:   
     
     ; depending on the x coordinate, hang or fall
-    move.w  #MODE_KILLED,mode(a4)
-    move.w  #ORIGINAL_TICKS_PER_SEC,score_display_timer(a4)
-    
-    ; test display score with the proper color (reusing pink sprite palette)
-    move.w  #GHOST_KILL_TIMER,ghost_eaten_timer
+    move.w  #MODE_KILLED,mode(a4)    
+    ; display score (2 seconds)
+    move.w  #ENEMY_KILL_TIMER,score_display_timer(a4)
     
     cmp.w   #STATE_PLAYING,current_state
     bne.b   .no_sound
@@ -3797,8 +3782,17 @@ move_fright
 move_killed
     ; just display score for a while, decrease a counter
     ; then change to fall or hang
+    subq.w  #1,score_display_timer(a4)
+    bne.b   .keep_going
+    ; now get x coord and see if it's close to vertical lanes
+    ; TODO
+    move.w  xpos(a4),d0
+    
+.keep_going
     rts
+    
 move_kill:
+    ; animating the enemy killing the player
     move.w  enemy_kill_timer(pc),d0
     addq.w  #1,d0
     cmp.w   #10,d0
@@ -5477,6 +5471,8 @@ bonus_cattle_moving:
 next_level_is_bonus_level
     dc.b    0
 nb_lives:
+    dc.b    0
+new_life_restart
     dc.b    0
 bonus_sprites:
     dc.b    0
