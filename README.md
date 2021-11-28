@@ -14,9 +14,9 @@ REQUIRES:
 FEATURES:
 
 - original visual & sounds
-- original ghost behaviour & speed
+- faithful enemy behaviour & speed
 - 50 frames per second (PAL) even on a 68000 A500
-- all levels & bonuses
+- all levels & bonus levels
 - original intro
 - joystick controlled (port 1) or keyboard controls (arrows + space)
 - can run directly from shell or from whdload (fast machines/complex configurations)
@@ -28,8 +28,11 @@ CONTROLS:
 - P/second button: pause
 - F10 (or quitkey): quit
 
-ISSUES:
+TODO/ISSUES:
 
+- intro: fill maze use previous x/y like in bonus
+- intro/bonus: missing sprite
+- end of power: no palette reset!!! only if enemies killed
 - turn correction not perfect, sometimes character blocks
 - level 1: thief almost 8 loops: attacks
 - level 2: thief almost 7 loops: attacks
@@ -41,7 +44,8 @@ ISSUES:
 - enemy speed increasing
 - number of enemies increasing
 - killed on horiz: hanging, killed on vertical: falling
-- enemy killed score 1 score per enemy sprite. or blit score in white
+- enemy killed score 1 score per enemy sprite
+- reorganize sprites to match various palettes when an enemy is killed (tricky!)
 
 CREDITS:
 

@@ -59,19 +59,21 @@ INTERRUPTS_ON_MASK = $E038
     UWORD   prepost_turn
     LABEL   Player_SIZEOF
     
-	STRUCTURE	Ghost,0
+	STRUCTURE	Enemy,0
 	STRUCT      BaseCharacter2,Character_SIZEOF
 	STRUCT      palette,SpritePalette_SIZEOF
-
     APTR     frame_table
     APTR     copperlist_address
     APTR     color_register
+    UWORD   previous_xpos
+    UWORD   previous_ypos
+    UWORD   score_frame
     UWORD    mode_timer     ; number of 1/50th to stay in the current mode (thief only)
     UWORD    mode           ; current mode
     UWORD    previous_mode           ; previous mode
     UWORD    score_display_timer
     UWORD    fall_hang_timer
-    UWORD    hang_toggle
+    UWORD    fall_hang_toggle
 	LABEL	 Enemy_SIZEOF
     
     ;Exec Library Base Offsets
@@ -123,6 +125,7 @@ MODE_FALL = 6<<2       ; enemies fall down
 MODE_JUMP = 7<<2
 MODE_KILL = 8<<2
 MODE_KILLED = 9<<2
+MODE_CRASH = 10<<2      ; enemy just hit the ground after falling
 
 ; --------------- end debug/adjustable variables
 
@@ -202,6 +205,8 @@ JUMP_FIRST_FRAME = police1_jump_frame_table-police1_frame_table
 HANG_FIRST_FRAME = police1_hang_frame_table-police1_frame_table
 KILL_FIRST_FRAME = police1_kill_frame_table-police1_frame_table
 FALL_FIRST_FRAME = police1_fall_frame_table-police1_frame_table
+CRASH_FIRST_FRAME = FALL_FIRST_FRAME+8
+SCORE_FIRST_FRAME = police1_score_frame_table-police1_frame_table
 
 ; jump table macro, used in draw and update
 DEF_STATE_CASE_TABLE:MACRO
@@ -688,6 +693,14 @@ init_level:
     move.l  (a1,d2.w),a1    ; global speed table
     move.l  a1,global_speed_table
 
+    lea nb_enemy_table(pc),a1
+    move.w  level_number(pc),d2
+    cmp.w   #6,d2
+    bcs.b   .lower
+    move.w  #6,d2
+.lower
+    add.w   d2,d2
+    move.w  (a1,d2.w),nb_enemies_minus_one
 
     rts
 
@@ -818,22 +831,20 @@ init_enemies
     add.w   #Enemy_SIZEOF,a0
     dbf d7,.cloop
     
-    move.w nb_enemies(pc),d7
+    move.w nb_enemies_minus_one(pc),d7
     subq.w  #1,d7
-    lea _custom+color+32,a4
     moveq.l #0,d0
     moveq.w #1,d1
+    clr.w   d2
     lea enemies+Enemy_SIZEOF(pc),a0
 .igloop
-    ; copy all 4 colors (back them up)
-    move.l (a3)+,palette(a0)
-    move.l (a3)+,palette+4(a0)
-    move.l  a4,color_register(a0)
-    ; set/reset palette
+    ; copy all 4 "normal" colors
+    move.l (a3),palette(a0)
+    move.l (4,a3),palette+4(a0)
+
     
-    addq.l  #8,a4   ; next color register range
     move.l  a1,copperlist_address(a0)
-    add.l   #8,a1
+    addq.l   #8,a1
     
     tst.b   d4
     bne.b   .no_reset
@@ -853,25 +864,28 @@ init_enemies
     move.w  #DOWN,direction(a0)
     move.w  #MODE_NORMAL,mode(a0)
     
+    eor.w   #1,d2
+    beq.b   .forward_palette
+    addq.w  #8,a3
+.forward_palette
     add.w   #Enemy_SIZEOF,a0
     dbf d7,.igloop
   
     ; thief
-    
+    lea game_palette+56(pc),a3  ; 4 last colors
     lea     enemies,a0
     move.l (a3)+,palette(a0)
     move.l (a3)+,palette+4(a0)
-    move.l  a4,color_register(a0)
     move.w  #UP,direction(a0)
     move.w  #MODE_BORDER_PATROL,mode(a0)
     clr.w   h_speed(a0)     ; moving up at start
     move.w  #-1,v_speed(a0)     ; moving up at start
-    ; set/reset palette
-    ;;bsr set_normal_ghost_palette
+
     move.l  #thief_sprite,copperlist_address(a0)
 	move.w	#Y_MAX,ypos(a0)
 	move.w	#X_MAX,xpos(a0)
 
+    bsr update_color_addresses
     ; all enemies normal palette
     bsr set_enemy_normal_palette
 
@@ -914,8 +928,28 @@ init_enemies
     move.l #police7_frame_table,frame_table(a0)
     
     rts
-    
 
+; from copperlist addresses update color addresses
+; this allows to move sprites up/down the copperlist
+; and recompute color addresses accordingly    
+update_color_addresses
+    
+    lea   enemy_sprites,a2
+    move.w nb_enemies_minus_one(pc),d7
+    move.l #_custom+color+32,d1
+    lea enemies(pc),a0
+.loop
+    move.l  copperlist_address(a0),d0
+    sub.l   a2,d0   ; offset
+    and.b   #$F0,d0   ; truncate to previous 16th divisor
+    lsr.w   #1,d0     ; then divide
+    move.l  d1,a1
+    add.w   d0,a1
+    move.l  a1,color_register(a0)
+    add.w   #Enemy_SIZEOF,a0
+    dbf d7,.loop
+    rts
+    
 init_player
     clr.l   previous_valid_direction
     clr.w   death_frame_offset
@@ -1118,7 +1152,7 @@ draw_debug
 
 draw_enemies:
     lea enemies(pc),a0
-    move.w  nb_enemies(pc),d7   ; +thief
+    move.w  nb_enemies_minus_one(pc),d7   ; +thief
 .gloop
     bsr .draw_enemy
 .next_ghost_iteration
@@ -1135,50 +1169,53 @@ draw_enemies:
 .draw_enemy
     move.w  xpos(a0),d0
     addq.w  #2,d0       ; compensate
-    move.w  mode(a0),d3 ; normal/chase/fright/fall..
     move.w  ypos(a0),d1
     addq.w  #3,d1   ; compensate
-    cmp.w   #MODE_HANG,d3
-    bne.b   .no_hang1
-    addq.w  #8,d1   ; compensate
-.no_hang1    
     ; center => top left
     bsr store_sprite_pos
 
-
-
-    cmp.w   #MODE_KILLED,d3
-    bne.b   .next
-    move.l  score_frame(pc),a1  ; todo one per enemy  
-    bra.b   .store_sprite_pos
     ; we cannot have white color for score
     ; that would trash the other enemy
     ;;move.w  #$00ff,_custom+color+32+8+2
-.next
+
+    move.w  mode(a0),d3 ; normal/chase/fright/fall..
+    cmp.w   #MODE_CRASH+1,d3
+    bcs.b   .okk
+    blitz
+.okk
     lea     palette(a0),a2      ; normal ghost colors
-
-    move.l  frame_table(a0),a1
-
-    cmp.w   #MODE_HANG,d3
-    bne.b   .no_hang
-    addq.w  #8,d1   ; compensate
-    move.w  hang_toggle(a0),d2
-    add.w   #HANG_FIRST_FRAME,d2
+    lea     .jump_table(pc),a1
+    move.l  (a1,d3.w),a1
+    jmp     (a1)
     
+.draw_hang
+    addq.w  #8,d1   ; compensate
+    move.w  fall_hang_toggle(a0),d2
+    add.w   #HANG_FIRST_FRAME,d2
     bra.b   .get_frame
-.no_hang
-
-    cmp.w   #MODE_JUMP,d3
-    bne.b   .no_jump
+.draw_fall
+    tst.w   power_state_counter
+    beq.b   .draw_normal    ; power has faded: normal sprites
+    move.w  fall_hang_toggle(a0),d2
+    add.w   #FALL_FIRST_FRAME,d2
+    bra.b   .get_frame
+.draw_crash
+    move.w  fall_hang_toggle(a0),d2
+    add.w   #CRASH_FIRST_FRAME,d2
+    bra.b   .get_frame
+.draw_jump
     ; choose the frame among jump/hang/fall
     move.w  jump_frame(pc),d2
     bra.b   .get_frame
-.no_jump
-    cmp.w   #MODE_KILL,d3
-    bne.b   .no_kill
+.draw_killed
+    move.w  score_frame(a0),d2
+    bra.b   .get_frame
+    ; TODO draw score frame instead
+    bra.b   .draw_normal
+.draw_kill
     move.w  enemy_kill_frame(pc),d2
     bra.b   .get_frame
-.no_kill
+.draw_normal
     move.w  frame(a0),d2
     
     lsr.w   #2,d2   ; 8 divide to get 0,1
@@ -1187,6 +1224,7 @@ draw_enemies:
 .end_anim
 
 .get_frame
+    move.l  frame_table(a0),a1
     ; get proper frame from proper frame set
     move.l  (a1,d2.w),a1
     ; now if D6 is non-zero, handle shift
@@ -1198,6 +1236,18 @@ draw_enemies:
     swap    d2
     move.w  d2,(2,a1)    
     rts
+.jump_table
+    dc.l    .draw_normal
+    dc.l    .draw_normal
+    dc.l    .draw_normal
+    dc.l    .draw_normal
+    dc.l    .draw_normal
+    dc.l    .draw_hang
+    dc.l    .draw_fall
+    dc.l    .draw_jump
+    dc.l    .draw_kill
+    dc.l    .draw_killed
+    dc.l    .draw_crash
     
      
 draw_all
@@ -1273,11 +1323,11 @@ draw_all
     move.w  ypos(a0),d1
 
     ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
-    move.w  previous_xpos(pc),d2
+    move.w  previous_xpos(a0),d2
     bmi.b   .no_diagonal
     cmp.w   d0,d2
     beq.b   .no_diagonal
-    move.w  previous_ypos(pc),d3
+    move.w  previous_ypos(a0),d3
     cmp.w   d1,d3
     beq.b   .no_diagonal
     ; both x and y are different because update skipped a frame and went diagonal
@@ -1295,8 +1345,8 @@ draw_all
     
 .no_diagonal
     
-    move.w  d0,previous_xpos
-    move.w  d1,previous_ypos
+    move.w  d0,previous_xpos(a0)
+    move.w  d1,previous_ypos(a0)
     
     add.w   #2,d1
     
@@ -2413,9 +2463,11 @@ draw_bonus_maze:
 
     bsr draw_lives
     bsr draw_stars
+
+    lea enemies+Enemy_SIZEOF(pc),a0
     
-    move.w   #-1,previous_xpos
-    move.w   #-1,previous_ypos
+    move.w   #-1,previous_xpos(a0)
+    move.w   #-1,previous_ypos(a0)
     rts    
 
 
@@ -2759,9 +2811,17 @@ level2_interrupt:
     ; activate the "power pill" sequence only if enemies are "normal"
     cmp.w  #MODE_NORMAL,enemies+Enemy_SIZEOF+mode
     bne.b   .no_bonus
-    bsr all_four_corners_done
+    move.w  #1,can_eat_enemies_mode_pending
     bra.b   .no_playing
 .no_bonus
+    cmp.b   #$55,d0     ; F5
+    bne.b   .no_longer_bonus
+    ; make the "power pill" sequence longer only if power mode
+    tst.w     power_state_counter
+    beq.b   .no_longer_bonus
+    move.w  #POWER_STATE_LENGTH,power_state_counter
+    bra.b   .no_playing
+.no_longer_bonus
 
 .no_playing
 
@@ -3202,7 +3262,7 @@ check_collisions
     lsr.w   #COLLISION_SHIFTING_PRECISION,d1
     
     lea enemies(pc),a4
-    move.w  nb_enemies(pc),d7    ; plus one
+    move.w  nb_enemies_minus_one(pc),d7    ; plus one
 .gloop
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
@@ -3247,22 +3307,33 @@ check_collisions
     lea     enemy_killed_sound(pc),a0
     bsr     play_fx
 .no_sound
-
-    move.w  next_enemy_iteration_score(pc),d0
-    add.w   #1,next_enemy_iteration_score
-    add.w   d0,d0
-    add.w   d0,d0
-    lea  score_value_table(pc),a0
-    move.l  d0,-(a7)
-    move.l   (a0,d0.w),d0
-    bsr add_to_score
-    move.l  (a7)+,d0
-    lea  score_frame_table(pc),a0
-    move.l  (a0,d0.w),d0
-    move.l  d0,score_frame
+    sub.w   #1,nb_enemies_to_eat
+    move.w   next_enemy_iteration_score(pc),d1
+    move.l  d1,d0
+    add.w   #SCORE_FIRST_FRAME,d0
+    tst.w   nb_enemies_to_eat
+    bne.b   .still_enemies
+    addq.w  #4,d0       ; 3200 score frame
+.still_enemies
+    move.w  d0,score_frame(a4)
     
+    lea  score_value_table(pc),a0
+    move.l  (a0,d1.w),d0
+    cmp.l   #160,d0
+    bne.b   .not_max
+    ; re-award 1600 unless only 1 enemy left
+    tst.w   nb_enemies_to_eat
+    bne.b   add_to_score
+    ; award 3200 points
+    move.l  #320,d0
+    bra.b   add_to_score
+.not_max
+    addq.w  #4,d1
+    ; advance score
+    move.w  d1,next_enemy_iteration_score
+    bra add_to_score
     ; exits as soon as a collision is found
-    rts
+
     
 CHARACTER_X_START = 88
 
@@ -3445,7 +3516,7 @@ update_enemies:
     bsr     all_four_corners_done
 .no_eat_mode_pending
     
-    move.w nb_enemies(pc),d7
+    move.w nb_enemies_minus_one(pc),d7
     move.w  player_killed_timer(pc),d6
     bmi.b   .gloop
     subq.w  #1,player_killed_timer
@@ -3489,6 +3560,7 @@ enemy_move_table
     dc.l    move_jump
     dc.l    move_kill
     dc.l    move_killed
+    dc.l    move_crash
 
 
 BREAKIF:MACRO
@@ -3788,10 +3860,18 @@ move_killed
     move.w  xpos(a4),d0
     lea hangfall_table(pc),a0
     add.w   d0,d0
-    move.w  (a0,d0.w),mode(a4)
+    move.w  (a0,d0.w),d0
+    move.w  d0,mode(a4)
+    cmp.w   #MODE_FALL,d0
+    bne.b   .no_fall
+    lea     enemy_falling_sound,a0
+    bsr     play_fx
+.no_fall
     ; init timers & flags
     clr.w   fall_hang_timer(a4)
-    clr.w   hang_toggle(a4)
+    clr.w   fall_hang_toggle(a4)
+    clr.w   previous_ypos(a4)
+    addq.w  #8,ypos(a4)
     rts
     
     
@@ -3835,6 +3915,8 @@ move_hang
     bne.b   .power
     ; no power state, reset old mode
     move.w  previous_mode(a4),mode(a4)
+    ; subtract 8 again
+    subq.w  #8,ypos(a4)
 .power
     ; does nothing, just increases timer for hang animation
     move.w  fall_hang_timer(a4),d0
@@ -3842,17 +3924,70 @@ move_hang
     cmp.w   #30,d0
     bne.b   .no_change
     clr.w   d0
-    eor.w  #4,hang_toggle(a4)
+    eor.w  #4,fall_hang_toggle(a4)
 .no_change
     move.w  d0,fall_hang_timer(a4)
     rts
 
-move_fall
-    ; todo: fall and crater
-    ; maybe another timer/flag is needed or not: y pos = 200: crash
-    ; use timer to animate    
+move_crash
+    bsr reset_mode
+    move.w  fall_hang_timer(a4),d0
+    addq.w  #1,d0
+    cmp.w   #12,d0
+    bne.b   .no_change
+    clr.w   d0
+    eor.w  #4,fall_hang_toggle(a4)
+.no_change
+    move.w  d0,fall_hang_timer(a4)
     rts
+    
+move_fall
+    ; todo: fall and crater or keep falling and respawn on top if power state ends
+    ; before enemy hits the ground
+    ; use timer to animate   
 
+    move.w  fall_hang_timer(a4),d0
+    addq.w  #1,d0
+    cmp.w   #12,d0
+    bne.b   .no_change
+    clr.w   d0
+    eor.w  #4,fall_hang_toggle(a4)
+.no_change
+    move.w  d0,fall_hang_timer(a4)
+    ; add 1 or 2
+    move.w  ypos(a4),d1
+    tst.w   power_state_counter
+    beq.b   .no_power
+    cmp.w   #MAZE_HEIGHT,d1
+    bcc.b   .crash
+    bra.b   .no_wrap
+.no_power
+    ; power state is already ended
+    move.w  d1,previous_ypos(a4)
+    tst.w   d1
+    bpl.b   .no_neg
+    ; negative: no double fall speed
+    clr.w   d0
+.no_neg
+    cmp.w   #MAZE_HEIGHT+8,d1
+    bcs.b   .no_wrap
+    move.w #-8,d1       ; wrap up
+.no_wrap    
+    btst    #0,d0
+    beq.b   .one
+    add.w #1,d1
+.one
+    add.w  #1,d1
+    move.w  d1,ypos(a4)
+    rts
+.crash
+    move.w  #MAZE_HEIGHT,ypos(a4)
+    move.w  #MODE_CRASH,mode(a4)
+    lea enemy_hit_sound,a0
+    bsr play_fx
+.no_first
+    rts
+    
 reset_mode
     tst.w   power_state_counter
     bne.b   .power
@@ -3876,9 +4011,11 @@ all_four_corners_done
     movem.l  d1-d2/a1,-(a7)
     ; resets next enemy eaten score
     clr.w  next_enemy_iteration_score
-
     lea enemies(pc),a0
-    move.w  nb_enemies(pc),d7
+    move.w  nb_enemies_minus_one(pc),d7
+    addq.w  #1,d7
+    move.w  d7,nb_enemies_to_eat
+    subq.w  #1,d7
 .gloop
     move.w  mode(a0),previous_mode(a0)
     move.w  #MODE_FRIGHT,mode(a0)
@@ -3897,46 +4034,57 @@ all_four_corners_done
     rts
     
 set_enemy_power_state_palette
-    move.l  a2,-(a7)
+    movem.l  d1/a1/a2,-(a7)
     lea enemies(pc),a0
     move.l  fright_palette(pc),a2   ; same for all enemies
-    move.w  nb_enemies(pc),d0       ; plus one
+    move.w  nb_enemies_minus_one(pc),d0       ; plus one
 .gloop
+    move.w  mode(a0),d1
+    cmp.w   #MODE_FRIGHT,d1
+    bne.b   .next
     move.l  color_register(a0),a1
     ; set/reset palette
     move.l  (a2),(a1)+
     move.l  (4,a2),(a1)
+.next
     add.w   #Enemy_SIZEOF,a0
     dbf d0,.gloop
-    move.l  (a7)+,a2
+    movem.l  (a7)+,d1/a1/a2
     rts
     
 set_enemy_power_blink_palette
-    move.l  a2,-(a7)
+    movem.l  d1/a1/a2,-(a7)
     lea enemies(pc),a0
     move.l  fright_blink_palette(pc),a2   ; same for all enemies
-    move.w  nb_enemies(pc),d0       ; plus one
+    move.w  nb_enemies_minus_one(pc),d0       ; plus one
 .gloop
+    move.w  mode(a0),d1
+    cmp.w   #MODE_FRIGHT,d1
+    bne.b   .next
     move.l  color_register(a0),a1
     ; set/reset palette
     move.l  (a2),(a1)+
     move.l  (4,a2),(a1)
+.next
     add.w   #Enemy_SIZEOF,a0
     dbf d0,.gloop
-    move.l  (a7)+,a2
+    movem.l  (a7)+,d1/a1/a2
     rts
 
 ; < A0: ghost structure
+; trashes: D0,D1,A0,A1
 set_enemy_normal_palette
-    move.w  nb_enemies(pc),d0
+    move.w  nb_enemies_minus_one(pc),d0
     lea enemies(pc),a0
 .gloop
-    move.l  a1,-(a7)
+    move.w  mode(a0),d1
+    cmp.w   #MODE_FRIGHT,d1
+    beq.b   .next
     move.l  color_register(a0),a1
     ; set/reset palette
     move.l  palette(a0),(a1)+
     move.l  palette+4(a0),(a1)
-    move.l  (a7)+,a1
+.next
     add.w   #Enemy_SIZEOF,a0
     dbf d0,.gloop
     rts
@@ -4348,7 +4496,7 @@ enemies_jump
     move.w  d7,jump_frame
     
     lea enemies(pc),a0
-    move.w  nb_enemies(pc),d7
+    move.w  nb_enemies_minus_one(pc),d7
 .jumploop
     move.w   mode(a0),previous_mode(a0)
     move.w  #MODE_JUMP,mode(a0)
@@ -4358,7 +4506,7 @@ enemies_jump
     
 enemies_previous_state
     lea enemies(pc),a0
-    move.w  nb_enemies(pc),d7
+    move.w  nb_enemies_minus_one(pc),d7
 .jumploop
     move.w   previous_mode(a0),mode(a0)
     add.w   #Enemy_SIZEOF,a0
@@ -5438,8 +5586,6 @@ previous_player_address
 previous_valid_direction
     dc.l    0
 
-score_frame
-    dc.l    0
 global_speed_table
     dc.l    0
 dot_table_read_only:
@@ -5491,12 +5637,10 @@ last_bonus_timeout
     dc.w    0
 banana_x
     dc.w    0
-previous_xpos
+nb_enemies_minus_one
     dc.w    0
-previous_ypos
+nb_enemies_to_eat
     dc.w    0
-nb_enemies
-    dc.w    4
 jump_index
     dc.w   0
 jump_frame
@@ -5562,6 +5706,9 @@ extra_life_message:
     
 score_table
     dc.w    0,1,5
+nb_enemy_table
+    dc.w    4,4,5,5,6,6,7,7
+
 fruit_score     ; must follow score_table
     dc.w    10
 loop_array:
@@ -5743,11 +5890,9 @@ DEF_FRIGHT_ENTRY:MACRO
     dc.w    ORIGINAL_TICKS_PER_SEC*\1,NB_FLASH_FRAMES*\2*2
     ENDM
     
-
-score_frame_table:
-    dc.l    score_200,score_400,score_800,score_1600,score_1600,score_3200
 score_value_table
-    dc.l    20,40,80,160,160,320
+    dc.l    20,40,80,160
+
     
 ; what: get current move speed for ghost
 ; < A0: ghost structure
@@ -5838,6 +5983,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY lose_bonus,1,SOUNDFREQ
     SOUND_ENTRY win_bonus,1,SOUNDFREQ
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ
+    SOUND_ENTRY enemy_falling,2,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
     SOUND_ENTRY player_killed,2,SOUNDFREQ
     SOUND_ENTRY credit,1,SOUNDFREQ
@@ -6007,7 +6153,6 @@ thief_sprite:
     dc.w    sprpt+24,0
     dc.w    sprpt+26,0
     ; #7
-score_sprite_entry:     ; can use since there's white in thief sprite
     dc.w    sprpt+28,0
     dc.w    sprpt+30,0
 end_color_copper:
@@ -6086,203 +6231,212 @@ lives
 star
     incbin  "star.bin"
 
-
-
     
 DECL_POLICE:MACRO
-\1_frame_table:
-    dc.l    \1_0
-    dc.l    \1_1
-    dc.l    \1_2
-    dc.l    \1_3
-\1_end_frame_table:
-\1_jump_frame_table:
-    dc.l    \1_jump_0
-    dc.l    \1_jump_1
-\1_jump_end_frame_table:
-\1_hang_frame_table:
-    dc.l    \1_hang_0
-    dc.l    \1_hang_1
-\1_hang_end_frame_table:
-\1_kill_frame_table:
-    dc.l    \1_kill_0
-    dc.l    \1_kill_1
-\1_kill_end_frame_table:
-\1_fall_frame_table:
-    dc.l    \1_fall_0
-    dc.l    \1_fall_1
-    dc.l    \1_fall_2
-    dc.l    \1_fall_3
-\1_fall_end_frame_table:
-
+police\1_frame_table:
+    dc.l    police\1_0
+    dc.l    police\1_1
+    dc.l    police\1_2
+    dc.l    police\1_3
+police\1_end_frame_table:
+police\1_jump_frame_table:
+    dc.l    police\1_jump_0
+    dc.l    police\1_jump_1
+police\1_jump_end_frame_table:
+police\1_hang_frame_table:
+    dc.l    police\1_hang_0
+    dc.l    police\1_hang_1
+police\1_hang_end_frame_table:
+police\1_kill_frame_table:
+    dc.l    police\1_kill_0
+    dc.l    police\1_kill_1
+police\1_kill_end_frame_table:
+police\1_fall_frame_table:
+    dc.l    police\1_fall_0
+    dc.l    police\1_fall_1
+    dc.l    police\1_fall_2
+    dc.l    police\1_fall_3
+police\1_fall_end_frame_table:
+police\1_score_frame_table:
+    dc.l    police\1_score_200
+    dc.l    police\1_score_400
+    dc.l    police\1_score_800
+    dc.l    police\1_score_1600
+    dc.l    police\1_score_3200
     
     ; all enemies share the same graphics, only the colors are different
     ; but we need to replicate the graphics 8*4 times because of sprite control word
-\1_0
+police\1_0
     dc.l    0
     incbin  "police_0.bin"
     dc.l    0
-\1_1
+police\1_1
     dc.l    0
     incbin  "police_1.bin"
     dc.l    0
-\1_2
+police\1_2
     dc.l    0
     incbin  "police_2.bin"
     dc.l    0
-\1_3
+police\1_3
     dc.l    0
     incbin  "police_3.bin"
     dc.l    0
-\1_hang_0
+police\1_hang_0
     dc.l    0
     incbin  "police_hang_0.bin"
     dc.l    0
-\1_hang_1
+police\1_hang_1
     dc.l    0
     incbin  "police_hang_1.bin"
     dc.l    0
-\1_jump_0
+police\1_jump_0
     dc.l    0
     incbin  "police_jump_0.bin"
     dc.l    0
-\1_jump_1
+police\1_jump_1
     dc.l    0
     incbin  "police_jump_1.bin"
     dc.l    0
-\1_kill_0
-\1_fall_0
+police\1_kill_0
+police\1_fall_0
     dc.l    0
     incbin  "police_fall_0.bin"
     dc.l    0
-\1_fall_1
+police\1_fall_1
     dc.l    0
     incbin  "police_fall_1.bin"
     dc.l    0
-\1_fall_2
+police\1_fall_2
     dc.l    0
     incbin  "police_fall_2.bin"
     dc.l    0
-\1_fall_3
+police\1_fall_3
     dc.l    0
     incbin  "police_fall_3.bin"
     dc.l    0
-\1_kill_1
+police\1_kill_1
     dc.l    0
     incbin  "police_kill.bin"
     dc.l    0
-
+police\1_score_200:
+    dc.l    0
+    incbin  "scores_200.bin"
+    dc.l    0
+police\1_score_400:
+    dc.l    0
+    incbin  "scores_400.bin"
+    dc.l    0
+police\1_score_800:
+    dc.l    0
+    incbin  "scores_800.bin"
+    dc.l    0
+police\1_score_1600:
+    dc.l    0
+    incbin  "scores_1600.bin"
+    dc.l    0
+police\1_score_3200:
+    dc.l    0
+    incbin  "scores_3200.bin"
+    dc.l    0
 
     ENDM
         
-    DECL_POLICE  police1
-    DECL_POLICE  police2
-    DECL_POLICE  police3
-    DECL_POLICE  police4
-    DECL_POLICE  police5
-    DECL_POLICE  police6
-    DECL_POLICE  police7
+    DECL_POLICE  1
+    DECL_POLICE  2
+    DECL_POLICE  3
+    DECL_POLICE  4
+    DECL_POLICE  5
+    DECL_POLICE  6
+    DECL_POLICE  7
 
 
 
     
 DECL_CATTLE:MACRO
-\1_frame_table:
-    dc.l    \1_0
-    dc.l    \1_1
-    dc.l    \1_0
-    dc.l    \1_1
-\1_end_frame_table:
-\1_jump_frame_table:
-    dc.l    \1_jump_0
-    dc.l    \1_jump_1
-\1_jump_end_frame_table:
-\1_hang_frame_table:
-    dc.l    \1_hang_0
-    dc.l    \1_hang_1
-\1_hang_end_frame_table:
-\1_fall_frame_table:
-    dc.l    \1_fall_0
-    dc.l    \1_fall_1
-    dc.l    \1_fall_2
-    dc.l    \1_fall_3
-\1_fall_end_frame_table:
+cattle\1_frame_table:
+    dc.l    cattle\1_0
+    dc.l    cattle\1_1
+    dc.l    cattle\1_0
+    dc.l    cattle\1_1
+cattle\1_end_frame_table:
+cattle\1_jump_frame_table:
+    dc.l    cattle\1_jump_0
+    dc.l    cattle\1_jump_1
+cattle\1_jump_end_frame_table:
+cattle\1_hang_frame_table:
+    dc.l    cattle\1_hang_0
+    dc.l    cattle\1_hang_1
+cattle\1_hang_end_frame_table:
+cattle\1_fall_frame_table:
+    dc.l    cattle\1_fall_0
+    dc.l    cattle\1_fall_1
+    dc.l    cattle\1_fall_2
+    dc.l    cattle\1_fall_3
+cattle\1_fall_end_frame_table:
+cattle\1_score_table:   ; no need to copy score sprites
+    dc.l    police\1_score_200
+    dc.l    police\1_score_400
+    dc.l    police\1_score_800
+    dc.l    police\1_score_1600
+    dc.l    police\1_score_1600
+    dc.l    police\1_score_3200
 
     
     ; all enemies share the same graphics, only the colors are different
     ; but we need to replicate the graphics 8*4 times because of sprite control word
-\1_0
+cattle\1_0
     dc.l    0
     incbin  "cattle_0.bin"
     dc.l    0
-\1_1
+cattle\1_1
     dc.l    0
     incbin  "cattle_1.bin"
     dc.l    0
-\1_hang_0
+cattle\1_hang_0
     dc.l    0
     incbin  "cattle_hang_0.bin"
     dc.l    0
-\1_hang_1
+cattle\1_hang_1
     dc.l    0
     incbin  "cattle_hang_1.bin"
     dc.l    0
-\1_jump_0
+cattle\1_jump_0
     dc.l    0
     incbin  "cattle_jump_0.bin"
     dc.l    0
-\1_jump_1
+cattle\1_jump_1
     dc.l    0
     incbin  "cattle_jump_1.bin"
     dc.l    0
-\1_fall_0
+cattle\1_fall_0
     dc.l    0
     incbin  "cattle_fall_0.bin"
     dc.l    0
-\1_fall_1
+cattle\1_fall_1
     dc.l    0
     incbin  "cattle_fall_1.bin"
     dc.l    0
-\1_fall_2
+cattle\1_fall_2
     dc.l    0
     incbin  "cattle_fall_2.bin"
     dc.l    0
-\1_fall_3
+cattle\1_fall_3
     dc.l    0
     incbin  "cattle_fall_3.bin"
     dc.l    0
 
-
     ENDM
         
-    DECL_CATTLE  cattle1
-    DECL_CATTLE  cattle2
-    DECL_CATTLE  cattle3
-    DECL_CATTLE  cattle4
-    DECL_CATTLE  cattle5
-    DECL_CATTLE  cattle6
-    DECL_CATTLE  cattle7
+    DECL_CATTLE  1
+    DECL_CATTLE  2
+    DECL_CATTLE  3
+    DECL_CATTLE  4
+    DECL_CATTLE  5
+    DECL_CATTLE  6
+    DECL_CATTLE  7
     
-score_200:
-    dc.l    0
-    incbin  "scores_200.bin"      ; 64 bytes each, palette from pink sprite
-    dc.l    0
-score_400:
-    dc.l    0
-    incbin  "scores_400.bin"
-    dc.l    0
-score_800:
-    dc.l    0
-    incbin  "scores_800.bin"
-    dc.l    0
-score_1600:
-    dc.l    0
-    incbin  "scores_1600.bin"
-    dc.l    0
-score_3200:
-    dc.l    0
-    incbin  "scores_3200.bin"
-    dc.l    0
+
 score_5000:
     dc.l    0
     incbin  "scores_5000.bin"
@@ -6321,6 +6475,10 @@ enemy_killed_raw
     incbin  "enemy_killed.raw"
     even
 enemy_killed_raw_end
+enemy_falling_raw
+    incbin  "enemy_falling.raw"
+    even
+enemy_falling_raw_end
 player_killed_raw
     incbin  "player_killed.raw"
     even
