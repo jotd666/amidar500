@@ -94,7 +94,7 @@ Execbase  = 4
 ;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
@@ -700,7 +700,7 @@ init_level:
     move.w  #6,d2
 .lower
     add.w   d2,d2
-    move.w  (a1,d2.w),nb_enemies_minus_one
+    move.w  (a1,d2.w),nb_enemies_but_thief
 
     rts
 
@@ -831,7 +831,7 @@ init_enemies
     add.w   #Enemy_SIZEOF,a0
     dbf d7,.cloop
     
-    move.w nb_enemies_minus_one(pc),d7
+    move.w nb_enemies_but_thief(pc),d7
     subq.w  #1,d7
     moveq.l #0,d0
     moveq.w #1,d1
@@ -889,10 +889,10 @@ init_enemies
     ; all enemies normal palette
     bsr set_enemy_normal_palette
 
+    lea enemies(pc),a0
     ; specific settings
     tst.b   bonus_sprites
     bne.b   .cattle
-    lea enemies(pc),a0
     move.w  level_number(pc),d0
     btst    #0,d0
     beq.b   .police
@@ -935,7 +935,7 @@ init_enemies
 update_color_addresses
     
     lea   enemy_sprites,a2
-    move.w nb_enemies_minus_one(pc),d7
+    move.w nb_enemies_but_thief(pc),d7
     move.l #_custom+color+32,d1
     lea enemies(pc),a0
 .loop
@@ -1152,7 +1152,7 @@ draw_debug
 
 draw_enemies:
     lea enemies(pc),a0
-    move.w  nb_enemies_minus_one(pc),d7   ; +thief
+    move.w  nb_enemies_but_thief(pc),d7   ; +thief
 .gloop
     bsr .draw_enemy
 .next_ghost_iteration
@@ -1179,10 +1179,6 @@ draw_enemies:
     ;;move.w  #$00ff,_custom+color+32+8+2
 
     move.w  mode(a0),d3 ; normal/chase/fright/fall..
-    cmp.w   #MODE_CRASH+1,d3
-    bcs.b   .okk
-    blitz
-.okk
     lea     palette(a0),a2      ; normal ghost colors
     lea     .jump_table(pc),a1
     move.l  (a1,d3.w),a1
@@ -1595,7 +1591,7 @@ draw_intro_screen
     bsr hide_sprites
     
     bsr draw_intro_maze
-
+        
     lea    .play(pc),a0
     move.w  #96,d0
     move.w  #48-24,d1
@@ -1681,11 +1677,12 @@ draw_intro_screen
     cmp.b   #1,d0
     bne.b   .no_part1
 
+    ; part 1: cattle drawing path in intro maze
     lea enemies+Enemy_SIZEOF(pc),a0
     
     move.w  xpos(a0),d0
     addq.w  #2,d0       ; compensate
-.do_display
+
     move.w  ypos(a0),d1
     add.w  #INTRO_Y_SHIFT+3,d1   ; compensate + add offset so logic coords match intro maze
     ; center => top left
@@ -1707,10 +1704,44 @@ draw_intro_screen
     swap    d2
     move.w  d2,(2,a1)  
     
-    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
-    lea screen_data,a1
+    
     move.w  xpos(a0),d0
     move.w  ypos(a0),d1
+
+    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
+    move.w  previous_xpos(a0),d2
+    bmi.b   .no_diagonal
+    cmp.w   d0,d2
+    beq.b   .no_diagonal
+    move.w  previous_ypos(a0),d3
+    cmp.w   d1,d3
+    beq.b   .no_diagonal
+    ; both x and y are different because update skipped a frame and went diagonal
+    ; we have to fix that else the line will be buggy
+        ; y is different
+    movem.w d0-d1,-(a7)
+    move.w   d3,d1  ; previous y
+    ;;add.w   #2,d1
+    bsr .copyit
+    movem.w (a7),d0-d1
+    move.w   d2,d0  ; previous y
+    ;;add.w   #2,d1
+    bsr .copyit
+    movem.w (a7)+,d0-d1
+
+.no_diagonal    
+    move.w  d0,previous_xpos(a0)
+    move.w  d1,previous_ypos(a0)
+    
+    ;;add.w   #2,d1
+
+    bsr .copyit
+    rts
+    
+    
+    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
+.copyit
+    lea screen_data,a1
     add.w   #INTRO_Y_SHIFT+8,d1
     ADD_XY_TO_A1    a2
     lea (SCREEN_PLANE_SIZE,a1),a2
@@ -1721,7 +1752,6 @@ draw_intro_screen
 .skipleft
     move.b  (1,a1),(1,a2)
     move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
-
     rts
 .no_part1
     ; nothing to animate in part 2 (highscores)
@@ -2657,21 +2687,39 @@ init_interrupts
     rts
     
 exc8
-    blitz
-    nop
-    rte
+    lea .bus_error(pc),a0
+    bra.b lockup
+.bus_error:
+    dc.b    "BUS ERROR AT",0
+    even
 excc
-    blitz
-    nop
-    nop
-    rte
+    lea .linea_error(pc),a0
+    bra.b lockup
+.linea_error:
+    dc.b    "LINEA ERROR AT",0
+    even
+
 exc10
-    blitz
-    nop
-    nop
-    nop
-    rte
-    
+    lea .illegal_error(pc),a0
+    bra.b lockup
+.illegal_error:
+    dc.b    "ILLEGAL INSTRUCTION AT",0
+    even
+
+lockup
+    move.l  (2,a7),d3
+    move.w  #$FFF,d2
+    clr.w   d0
+    clr.w   d1
+    bsr write_color_string
+
+    lsl.w   #3,d0
+    lea screen_data,a1
+    move.l  d3,d2
+    moveq.w #8,d3
+    bsr write_hexadecimal_number    
+.lockup
+    bra.b   .lockup
 finalize_sound
     bsr stop_sounds
     ; assuming VBR at 0
@@ -2997,6 +3045,7 @@ update_all
     
     st.b    bonus_sprites
     moveq.l #0,d0
+    move.w  #1,nb_enemies_but_thief    
     bsr init_enemies
     lea enemies+Enemy_SIZEOF(pc),a0
 
@@ -3262,7 +3311,7 @@ check_collisions
     lsr.w   #COLLISION_SHIFTING_PRECISION,d1
     
     lea enemies(pc),a4
-    move.w  nb_enemies_minus_one(pc),d7    ; plus one
+    move.w  nb_enemies_but_thief(pc),d7    ; plus one
 .gloop
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
@@ -3345,16 +3394,21 @@ update_intro_screen
     move.b  #1,intro_step
     st.b    intro_state_change
 
+    move.w  #1,nb_enemies_but_thief
     st.b    bonus_sprites
     moveq.l #0,d0
     bsr init_enemies
+    
     lea enemies+Enemy_SIZEOF(pc),a0
 
+    move.w   #-1,previous_xpos(a0)
+    move.w   #-1,previous_ypos(a0)
     move.w  #120,xpos(a0)
     move.w  #-8,ypos(a0)     ; this is the logical coordinate
     move.l  #maze_intro_wall_table,maze_wall_table
     move.w  #DOWN,direction(a0)
     move.l  #$FFFF0001,h_speed(a0)
+    
     bra.b   .cont
 .no_first 
     cmp.l   #ORIGINAL_TICKS_PER_SEC*9,d0
@@ -3516,7 +3570,7 @@ update_enemies:
     bsr     all_four_corners_done
 .no_eat_mode_pending
     
-    move.w nb_enemies_minus_one(pc),d7
+    move.w nb_enemies_but_thief(pc),d7
     move.w  player_killed_timer(pc),d6
     bmi.b   .gloop
     subq.w  #1,player_killed_timer
@@ -4012,7 +4066,7 @@ all_four_corners_done
     ; resets next enemy eaten score
     clr.w  next_enemy_iteration_score
     lea enemies(pc),a0
-    move.w  nb_enemies_minus_one(pc),d7
+    move.w  nb_enemies_but_thief(pc),d7
     addq.w  #1,d7
     move.w  d7,nb_enemies_to_eat
     subq.w  #1,d7
@@ -4037,7 +4091,7 @@ set_enemy_power_state_palette
     movem.l  d1/a1/a2,-(a7)
     lea enemies(pc),a0
     move.l  fright_palette(pc),a2   ; same for all enemies
-    move.w  nb_enemies_minus_one(pc),d0       ; plus one
+    move.w  nb_enemies_but_thief(pc),d0       ; plus one
 .gloop
     move.w  mode(a0),d1
     cmp.w   #MODE_FRIGHT,d1
@@ -4056,7 +4110,7 @@ set_enemy_power_blink_palette
     movem.l  d1/a1/a2,-(a7)
     lea enemies(pc),a0
     move.l  fright_blink_palette(pc),a2   ; same for all enemies
-    move.w  nb_enemies_minus_one(pc),d0       ; plus one
+    move.w  nb_enemies_but_thief(pc),d0       ; plus one
 .gloop
     move.w  mode(a0),d1
     cmp.w   #MODE_FRIGHT,d1
@@ -4074,7 +4128,7 @@ set_enemy_power_blink_palette
 ; < A0: ghost structure
 ; trashes: D0,D1,A0,A1
 set_enemy_normal_palette
-    move.w  nb_enemies_minus_one(pc),d0
+    move.w  nb_enemies_but_thief(pc),d0
     lea enemies(pc),a0
 .gloop
     move.w  mode(a0),d1
@@ -4496,7 +4550,7 @@ enemies_jump
     move.w  d7,jump_frame
     
     lea enemies(pc),a0
-    move.w  nb_enemies_minus_one(pc),d7
+    move.w  nb_enemies_but_thief(pc),d7
 .jumploop
     move.w   mode(a0),previous_mode(a0)
     move.w  #MODE_JUMP,mode(a0)
@@ -4506,7 +4560,7 @@ enemies_jump
     
 enemies_previous_state
     lea enemies(pc),a0
-    move.w  nb_enemies_minus_one(pc),d7
+    move.w  nb_enemies_but_thief(pc),d7
 .jumploop
     move.w   previous_mode(a0),mode(a0)
     add.w   #Enemy_SIZEOF,a0
@@ -5637,7 +5691,7 @@ last_bonus_timeout
     dc.w    0
 banana_x
     dc.w    0
-nb_enemies_minus_one
+nb_enemies_but_thief
     dc.w    0
 nb_enemies_to_eat
     dc.w    0
