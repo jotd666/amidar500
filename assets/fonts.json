@@ -35,6 +35,12 @@
    "frames":1,
    "start_x":104,
    "start_y":8
+ },
+{
+   "name":"dot",
+   "frames":1,
+   "start_x":112,
+   "start_y":8
  }
  ]
 }

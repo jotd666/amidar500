@@ -94,10 +94,10 @@ Execbase  = 4
 ;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; test bonus screen 
-;BONUS_SCREEN_TEST
+BONUS_SCREEN_TEST
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -1254,6 +1254,48 @@ draw_all
     bra.b   draw_intro_screen
 ; draw bonus screen
 .bonus_screen
+    tst.w   bonus_text_screen_countdown
+    beq.b   .maze_part
+    ; cmp.w #dddddd
+    ; bne.b .skip_draw
+    move.w  #72,d0
+    move.w  #40,d1
+    lea     .bonus_stage_text(pc),a0
+    move.w  #$FF,d2
+    bsr     write_color_string
+    move.w  #80,d0
+    move.w  #96,d1
+    lea     .5000_points_text(pc),a0
+    move.w  #$FF0,d2
+    bsr     write_color_string
+    move.w  #48,d0
+    move.w  #136,d1
+    lea     .push_jump_button_text(pc),a0
+    move.w  #$F0,d2
+    bsr     write_color_string
+    ; banana sprite at x=60
+    move.w  #60,d0
+    move.w  #96,d1
+    bsr store_sprite_pos
+
+    ; write control word
+    lea banana_sprite,a0
+    move.l  d0,(a0)
+    move.l  a0,d0
+    lea bonus_banana,a0
+    bsr store_sprite_copperlist
+
+    ; banana colors (yellow)
+    lea _custom+color+32,a1  ; sprite 0-1 colors
+    lea banana_sprite_palette(pc),a0
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+
+    bsr draw_lives
+    bsr draw_stars
+.skip_draw
+    rts
+.maze_part
     cmp.l   #1,state_timer      ; init done at first tick of update_intro_screen
     beq.b   draw_bonus_maze
     
@@ -1364,7 +1406,13 @@ draw_all
    
     rts
     
-
+.bonus_stage_text
+    dc.b    "BONUS  STAGE",0
+.5000_points_text
+    dc.b    ".... 5000 PTS",0
+.push_jump_button_text:
+    dc.b    "PUSH JUMP  BUTTON",0
+    even
     
 .game_start_screen
     tst.l   state_timer
@@ -2445,11 +2493,10 @@ draw_bonus_maze:
 
 
     lea screen_data,a1
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE*2,a1
+    REPT    4
     bsr clear_playfield_plane
     add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_playfield_plane
+    ENDR
         
         
     ; vertical edges
@@ -3017,9 +3064,25 @@ update_all
     
     ; update_bonus_screen
 .bonus_screen
+  
     tst.l   state_timer
     bne.b   .no_first_bonus_tick
-    ; pick a maze randomly. There are 3 different mazes
+
+    addq.l  #1,state_timer
+   
+    clr.w   bonus_level_lane_select_subcounter
+    move.w  #ORIGINAL_TICKS_PER_SEC*5,bonus_text_screen_countdown
+.no_first_bonus_tick
+
+    move.w  bonus_text_screen_countdown(pc),d0
+    tst.w   d0
+    beq.b   .bonus_playing
+    subq.w  #1,d0
+    move.w  d0,bonus_text_screen_countdown
+    bne.b   .no_bonus_init  ; still in bonus pre-screen
+    
+     ; pick a maze randomly. There are 3 different mazes
+    
 .random_loop
     bsr random
     and.w   #$3,d0
@@ -3052,15 +3115,11 @@ update_all
     move.w  #0,xpos(a0)
     move.w  #8,ypos(a0)
     move.w  #DOWN,direction(a0)
-    move.l  #$FFFF0001,h_speed(a0)
+    move.l  #$FFFF0001,h_speed(a0)   
+.no_bonus_init
+    rts
     
-    clr.w   bonus_level_lane_select_subcounter
-    
-.no_first_bonus_tick
-
-        ;bonus_level_lane_select_timer
-    ;clr.w   
-
+.bonus_playing
     addq.l  #1,state_timer
     
     tst.b   bonus_cattle_moving
@@ -5486,6 +5545,12 @@ write_string:
     moveq.l #0,d2
     bra.b   .wl
 .nodash
+    cmp.b   #'.',d2
+    bne.b   .nodot
+    lea dot(pc),a2
+    moveq.l #0,d2
+    bra.b   .wl
+.nodot
     cmp.b   #'"',d2
     bne.b   .noquote
     lea quote(pc),a2
@@ -5680,6 +5745,8 @@ power_state_counter
     dc.w    0
 ; move every 10 ticks
 bonus_level_lane_select_subcounter:
+    dc.w    0
+bonus_text_screen_countdown
     dc.w    0
 bonus_music_replay_timer
     dc.w    0
@@ -5883,6 +5950,8 @@ slash
     incbin  "slash.bin"
 dash
     incbin  "dash.bin"
+dot
+    incbin  "dot.bin"
 quote
     incbin  "quote.bin"
 heart
