@@ -30,14 +30,12 @@ CONTROLS:
 
 TODO/ISSUES:
 
-- intro: fill maze use previous x/y like in bonus
-- intro/bonus: missing sprite
+- intro: cattle slightly too low in y
 - end of power: no palette reset!!! only if enemies killed
 - turn correction not perfect, sometimes character blocks
 - level 1: thief almost 8 loops: attacks
 - level 2: thief almost 7 loops: attacks
 - so on...
-- rip extra life sound
 - rip thief attack sound
 - thief attack pauses, then more or less random, then follow
 - highscore table: duplicate highscore from actual table
@@ -46,6 +44,8 @@ TODO/ISSUES:
 - killed on horiz: hanging, killed on vertical: falling
 - enemy killed score 1 score per enemy sprite
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
+- level 2: music
+- level 2: paint!!!
 
 CREDITS:
 

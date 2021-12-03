@@ -94,10 +94,10 @@ Execbase  = 4
 ;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; test bonus screen 
-BONUS_SCREEN_TEST
+;BONUS_SCREEN_TEST
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -656,9 +656,11 @@ init_new_play:
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
+    move.l  #EXTRA_LIFE_SCORE,score_to_track
     move.w  #START_LEVEL-1,level_number
     clr.b   bonus_sprites
     clr.l   score
+    clr.l   previous_score
     clr.l   displayed_score
     rts
     
@@ -1548,21 +1550,25 @@ write_game_over
     
 ; < D0: score (/10)
 add_to_score:
+    move.l  score(pc),previous_score
+
     add.l   d0,score
-    tst.b  extra_life_awarded
-    bne.b   .no_play
+    move.l  score_to_track(pc),d1
     ; was below, check new score
-    cmp.l   #EXTRA_LIFE_SCORE,score    ; is current score above xtra life score
-    bcs.b   .no_play        ; not yet
+    cmp.l   score(pc),d1    ; is current score above xtra life score
+    bcc.b   .below        ; not yet
+    ; above next extra life score
+    cmp.l   previous_score(pc),d1
+    bcs.b   .below
     
-    move.b  #1,extra_life_awarded
+    add.l   #EXTRA_LIFE_PERIOD,d1
+    move.l  d1,score_to_track
+    
     move.w  #MSG_SHOW,extra_life_message
     addq.b   #1,nb_lives
-    move.l A0,-(a7)
-    move.w  #10,extra_life_sound_counter
-    clr.w   extra_life_sound_timer
-    move.l  (a7)+,a0
-.no_play
+    lea     extra_life_sound,a0
+    bsr play_fx
+.below
     rts
     
 random:
@@ -1705,10 +1711,11 @@ draw_intro_screen
     ; first sprite palette
     bsr .load_palette
 
-    moveq.w #6,d0
+    lea game_palette+32+24(pc),a0  ; we cheat, use sprite 4 with palette of 6-7
+    moveq.w #2,d0
     ; thief guard sprite palette
     bsr .load_palette
-
+    
     lea alt_sprite_palette+8(pc),a0  ; we cheat, use sprite 4 with palette of 6-7
     ; thief guard sprite palette
     moveq.w #4,d0
@@ -1732,7 +1739,7 @@ draw_intro_screen
     addq.w  #2,d0       ; compensate
 
     move.w  ypos(a0),d1
-    add.w  #INTRO_Y_SHIFT+3,d1   ; compensate + add offset so logic coords match intro maze
+    add.w  #INTRO_Y_SHIFT+5,d1   ; compensate + add offset so logic coords match intro maze
     ; center => top left
     bsr store_sprite_pos
 
@@ -5680,13 +5687,16 @@ prev_record_joystick_state
     ENDC
 
   
-current_state
+current_state:
     dc.w    0
-score
+score:
     dc.l    0
-displayed_score
+displayed_score:
     dc.l    0
-
+previous_score:
+    dc.l    0
+score_to_track:
+    dc.l    0
 
 
 ; general purpose timer for non-game states (intro, game over...)
@@ -6108,6 +6118,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ
     SOUND_ENTRY enemy_falling,2,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
+    SOUND_ENTRY extra_life,0,SOUNDFREQ
     SOUND_ENTRY player_killed,2,SOUNDFREQ
     SOUND_ENTRY credit,1,SOUNDFREQ
     SOUND_ENTRY eat,3,SOUNDFREQ
@@ -6598,6 +6609,10 @@ enemy_killed_raw
     incbin  "enemy_killed.raw"
     even
 enemy_killed_raw_end
+extra_life_raw
+    incbin  "extra_life.raw"
+    even
+extra_life_raw_end
 enemy_falling_raw
     incbin  "enemy_falling.raw"
     even
