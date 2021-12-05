@@ -35,16 +35,16 @@ TODO/ISSUES:
 - level 2: thief almost 7 loops: attacks
 - so on...
 - rip thief attack sound
-- after bonus level 2 doesn't start
+- after bonus level 2 doesn't start, bonus music resumes
 - thief attack pauses, then more or less random, then follow
 - enemy speed increasing
 - number of enemies increasing
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- level 2: music not played when launched after bonus
 - level 2: paint!!!
 - level 2: thief palette is wrong (blue/white is reverted, fright mode is green)
 - level 2: fall frames don't match (match level 1)
 - extra life: corrupt graphics on top right
+- level 1: normal music loop is wrong
 
 CREDITS:
 

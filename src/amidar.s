@@ -2481,13 +2481,60 @@ draw_maze:
 .bup3
     clr.l  (a1)+
     dbf d0,.bup3
-    ; but paint the segment where the player is TODO
+    ; but paint the segment where the player is
+    move.w  #88,d0
+    move.w  #Y_MAX+6,d1
+    bsr     draw_horizontal_segment
+    
+    
+    
 .no_clr
     rts    
 .zero
     dc.b    "0",0
     even
 
+; draw horiz segment in screen & back buffer
+; < D0: X start
+; < D1: Y start
+
+draw_horizontal_segment
+    movem.l d0-d4/a0-a3,-(a7)
+    lea mul40_table(pc),a2
+    moveq   #-1,d2
+    move.b  #$7F,d3
+    lsr.w   #3,d0   ; 8 divide
+    
+    ; draw horizontal separation
+    add.w   d1,d1
+    move.w  (a2,d1.w),d1    ; times40
+    add.w   d0,d1           ; plus X
+
+    lea paint_backup_plane,a1
+    move.w  d1,d4
+    bsr .draw
+    move.w  d4,d1
+    lea screen_data+SCREEN_PLANE_SIZE,a1
+    bsr .draw
+        
+    movem.l (a7)+,d0-d4/a0-a3
+    rts
+.draw
+    or.b    d3,(A1,d1)
+    or.b    d2,(1,A1,d1)
+    or.b    d2,(2,A1,d1)
+    or.b    d2,(3,A1,d1)
+    or.b    d2,(4,A1,d1)
+    or.b    #$80,(5,A1,d1)
+    add.w   #NB_BYTES_PER_LINE,d1
+    or.b    d3,(A1,d1)
+    or.b    d2,(1,A1,d1)
+    or.b    d2,(2,A1,d1)
+    or.b    d2,(3,A1,d1)
+    or.b    d2,(4,A1,d1)
+    or.b    #$80,(5,A1,d1)
+    rts
+    
 draw_intro_maze:
     bsr wait_blit
     
@@ -2616,6 +2663,8 @@ draw_maze_vertical_edges
     
 draw_maze_horizontal_lines:
     lea mul40_table(pc),a2
+    moveq   #-1,d2
+    move.b  #$7F,d3
 .seploop
     moveq   #0,d1
     move.b  (a0)+,d1
@@ -2625,12 +2674,11 @@ draw_maze_horizontal_lines:
     add.w   #5,a1
     bra.b   .seploop
 .cont
-    moveq   #-1,d2
-    move.b  #$7F,d3
     ; draw horizontal separation
     lsl.w   #2,d1
     move.w  (a2,d1.w),d1    ; times40
     lsl.w   #2,d1           ; times4
+    
     or.b    d3,(A1,d1)
     or.b    d2,(1,A1,d1)
     or.b    d2,(2,A1,d1)
@@ -3124,7 +3172,7 @@ update_all
     addq.l  #1,state_timer
    
     clr.w   bonus_level_lane_select_subcounter
-    move.w  #ORIGINAL_TICKS_PER_SEC*5,bonus_text_screen_countdown
+    move.w  #ORIGINAL_TICKS_PER_SEC*4,bonus_text_screen_countdown
 .no_first_bonus_tick
 
     move.w  bonus_text_screen_countdown(pc),d0
@@ -3256,9 +3304,9 @@ update_all
     ; win
     move.w  #BONUS_WON,bottom_reached
     move.w  #ORIGINAL_TICKS_PER_SEC*4,last_bonus_timeout
-    lea win_bonus_sound,a0
-    bsr play_fx
-    move.l  #500,d0
+    moveq.l #7,d0
+    bsr     play_music
+    move.l  #500,d0     ; 5000 points
     bra add_to_score
 .lose
     move.w  #BONUS_LOST,bottom_reached
@@ -3267,7 +3315,13 @@ update_all
     bsr play_fx
     rts
 .last_timeout
-    subq.w  #1,last_bonus_timeout
+    move.w  last_bonus_timeout(pc),d0
+    cmp.w   #ORIGINAL_TICKS_PER_SEC*2,d0
+    bne.b   .no_stopmus
+    bsr stop_sounds
+.no_stopmus
+    subq.w  #1,d0
+    move.w  d0,last_bonus_timeout
     bne.b   .continue
     ; next level
     bsr .bonus_level_completed
@@ -3275,18 +3329,14 @@ update_all
     rts
     
 .life_lost
-    rts  ; bra update_power_pill_flashing
+    rts
 
 .bonus_level_completed
     bsr hide_sprites
-
     bsr     stop_sounds
-
-    bra.b   .next_level
-    
 .next_level
      move.w  #STATE_NEXT_LEVEL,current_state
-     eor.b  #1,next_level_is_bonus_level
+     clr.b  next_level_is_bonus_level
      rts
      
 .game_over
@@ -3306,6 +3356,7 @@ update_all
     move.w  d0,completed_music_timer
     bne.b   .completed_music_playing
     
+    bsr stop_sounds
     move.w  #STATE_NEXT_LEVEL,current_state
     clr.l   state_timer     ; without this, bonus level isn't drawn
     bsr     hide_sprites    ; hide sprites as bonus level only uses 1 or 2 sprites
@@ -3319,8 +3370,8 @@ update_all
     tst.w  level_number
     bne.b   .no_delay
     ; first level: play start music
-    lea start_music_sound,a0
-    bsr     play_fx
+    moveq.l #6,d0
+    bsr     play_music
     move.w  #ORIGINAL_TICKS_PER_SEC*5,d0
 .no_delay
     move.w  d0,.start_music_countdown
@@ -3358,6 +3409,9 @@ update_all
     move.w  #SONG_1_LENGTH,d0
 .no_start_music
     move.w  d0,.start_music_countdown
+    cmp.w   #ORIGINAL_TICKS_PER_SEC,d0
+    bne.b   .music_out
+    bsr stop_sounds
     bra.b   .music_out
 .power_music
     subq.w  #1,d0
@@ -4443,6 +4497,9 @@ update_player
     move.w  d2,d0
     move.w  d2,d6   ; save it
     move.w  d3,d1
+    
+    tst.b   rustler_level
+    bne.b   .rustler
     bsr  get_dot_rectangles
     ; set registers d4-d6 with pointers on rectangles
     move.l  d1,d5
@@ -4455,6 +4512,7 @@ update_player
     ; add 10 to the score
     moveq.l #1,d0
     bsr add_to_score
+
     lea	screen_data+SCREEN_PLANE_SIZE,a1
     move.w  d2,d0
     move.w  d3,d1
@@ -4486,7 +4544,10 @@ update_player
     move.l  d6,a0
     bsr     count_dot
 .z3
-
+    rts
+    
+.rustler
+    ; TODO handle paint
 
 .no_move
     rts
@@ -4813,8 +4874,8 @@ animate_player
 
 level_completed: 
     bsr stop_sounds
-    lea win_level_sound,a0
-    bsr play_fx
+    moveq.l  #8,d0
+    bsr play_music
     st.b    next_level_is_bonus_level
     move.w  #ORIGINAL_TICKS_PER_SEC*6,completed_music_timer
     rts
@@ -5054,6 +5115,9 @@ is_on_bonus:
 ; returns valid location out of the maze
 ; (allows to handle edges, with a limit given by
 ; the move methods)
+;
+; this is only valid for level 1, once eaten, a location
+; cannot be "de-eaten"
 ; 
 ; args:
 ; < d0 : x (screen coords)
@@ -6228,10 +6292,7 @@ SOUND_ENTRY:MACRO
     ENDM
     
     ; radix, ,channel (0-3)
-    SOUND_ENTRY start_music,1,SOUNDFREQ
     SOUND_ENTRY lose_bonus,1,SOUNDFREQ
-    SOUND_ENTRY win_bonus,1,SOUNDFREQ
-    SOUND_ENTRY win_level,1,SOUNDFREQ
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ
     SOUND_ENTRY enemy_falling,2,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
@@ -6703,23 +6764,12 @@ credit_raw_end
 
 
 
-
-start_music_raw
-    incbin  "start_music.raw"
-    even
-start_music_raw_end
 lose_bonus_raw
     incbin  "lose_bonus.raw"
     even
 lose_bonus_raw_end
-win_bonus_raw
-    incbin  "win_bonus.raw"
-    even
-win_bonus_raw_end
-win_level_raw
-    incbin  "win_level.raw"
-    even
-win_level_raw_end
+
+
 ping_raw
     incbin  "ping.raw"
     even
