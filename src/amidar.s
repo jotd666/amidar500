@@ -91,7 +91,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
@@ -694,11 +694,13 @@ init_level:
     clr.b   nb_rectangles
     ; sets initial number of dots
 
+    clr.b    rustler_level
     lea rectlist_1(pc),a0
     ; level
     move.w  level_number(pc),d2
     btst    #0,d2
     beq.b   .riloop
+    st.b    rustler_level
     lea rectlist_2,a0
 .riloop
     move.l  (a0)+,d0
@@ -849,8 +851,7 @@ init_enemies
     move.l #cattle_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
     tst.b   bonus_sprites
     bne.b   .rustler
-    move.w  level_number(pc),d0
-    btst    #0,d0
+    tst.b   rustler_level
     bne.b   .rustler
     lea game_palette+32(pc),a3  ; the sprite part of the color palette 16-31
     move.l #police_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
@@ -925,8 +926,7 @@ init_enemies
     ; specific settings
     tst.b   bonus_sprites
     bne.b   .cattle
-    move.w  level_number(pc),d0
-    btst    #0,d0
+    tst.b   rustler_level
     beq.b   .police
 .cattle    
     move.l  #cattle1_frame_table,frame_table(a0)
@@ -991,8 +991,7 @@ init_player
 .no_clear
 
     lea player(pc),a0
-    move.w  level_number(pc),d0
-    btst    #0,d0
+    tst.b   rustler_level
     bne.b   .level2
     move.l  #maze_1_wall_table,maze_wall_table
     move.l  #'COPI',character_id(a0)
@@ -2006,12 +2005,8 @@ draw_intro_screen
 high_score
     dc.l    DEFAULT_HIGH_SCORE
 hiscore_table:
-    ; test decreasing score
     REPT    NB_HIGH_SCORES
-    dc.l    (DEFAULT_HIGH_SCORE/10)*(10-REPTN)
-    ENDR
-    
-    REPT    NB_HIGH_SCORES
+    ;; dc.l    (DEFAULT_HIGH_SCORE/10)*(10-REPTN)   ; decreasing score for testing
     dc.l    DEFAULT_HIGH_SCORE
     ENDR
 
@@ -2407,8 +2402,7 @@ draw_maze:
     
      lea screen_data+MAZE_ADDRESS_OFFSET,a1
    ; horizontal separations
-    move.w  level_number(pc),d0
-    btst    #0,d0
+    tst.b   rustler_level
     bne.b   .scores
     ; level 1
     lea maze_1_vertical_table(pc),a0
@@ -2475,7 +2469,20 @@ draw_maze:
 .bup2
     clr.l  (a1)+
     dbf d0,.bup2
-    
+    tst.b   rustler_level
+    beq.b   .no_clr
+    ; rustler (paint) level needs full 4-plane blit & restore
+    ; other level can manage to avoid that plane because character uses 3 other planes
+    ; thus preserving the dots and saving the need for saving/restoring them
+
+    ; clear this plane at start, there's nothing drawn yet
+    lea paint_backup_plane,a1
+    move.l  #SCREEN_PLANE_SIZE/4-1,d0
+.bup3
+    clr.l  (a1)+
+    dbf d0,.bup3
+    ; but paint the segment where the player is TODO
+.no_clr
     rts    
 .zero
     dc.b    "0",0
@@ -3338,8 +3345,7 @@ update_all
     subq.w  #1,d0    ; starts after a few seconds
     bne.b   .no_start_music
 .normal_music
-    move.w  level_number(pc),d0
-    btst    #0,d0
+    tst.b   rustler_level
     beq.b   .copier_level
     ; ruslter level
     moveq.l #4,d0
@@ -4838,12 +4844,26 @@ draw_player:
     move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a0),((REPTN-1)*NB_BYTES_PER_LINE,a1)
     ENDR
 
+    tst.b   rustler_level
+    beq.b   .no_erase
+    add.w   #SCREEN_PLANE_SIZE,a1
+    lea     paint_backup_plane,a0
+    add.l   d5,a0
+    ; now copy a rectangle of the saved screen
+    REPT    18
+    move.l   ((REPTN-1)*NB_BYTES_PER_LINE,a0),((REPTN-1)*NB_BYTES_PER_LINE,a1)
+    ENDR
+    
 .no_erase
 
     lea     player(pc),a2
     tst.w  player_killed_timer
     bmi.b   .normal
     lea     copier_dead_table,a0
+    tst.b   rustler_level
+    beq.b   .no_rust
+    lea     rustler_dead_table,a0
+.no_rust
     move.w  death_frame_offset(pc),d0
     add.w   d0,a0       ; proper frame to blit
     move.l  (a0),a0
@@ -4852,6 +4872,10 @@ draw_player:
 
     move.w  direction(a2),d0
     lea  copier_dir_table(pc),a0
+    tst.b   rustler_level
+    beq.b   .cont
+    lea  rustler_dir_table(pc),a0    
+.cont
     move.l  (a0,d0.w),a0
     move.w  frame(a2),d0
     add.w   d0,d0
@@ -4859,8 +4883,7 @@ draw_player:
     move.l  (a0,d0.w),a0
 .pacblit
 
-    move.w  xpos(a2),d3
-    
+    move.w  xpos(a2),d3    
     move.w  ypos(a2),d4
     ; center => top left
     moveq.l #-1,d2 ; mask
@@ -4885,6 +4908,8 @@ draw_player:
     tst.l   d5
     bmi.b   .no_erase2
     
+    ; TODO restore plane 1
+    
     ; restore plane 2
     lea   screen_data+SCREEN_PLANE_SIZE*2,a1
     lea rect_backup_plane,a4    
@@ -4896,11 +4921,28 @@ draw_player:
     ENDR
 
 .no_erase2    
+    tst.b   rustler_level
+    beq.b   .no_plane_1
+    lea	screen_data+SCREEN_PLANE_SIZE,a1
+    move.l  a1,a2   ; just restored background
+    ; plane 2
+    ; a3 is already computed from first cookie cut blit
+    lea (BOB_16X16_PLANE_SIZE,a0),a0
+    move.l  a1,a6
+    move.w d3,d0
+    move.w d4,d1
+
+    bsr blit_plane_cookie_cut
+    lea (BOB_16X16_PLANE_SIZE,a0),a0
+    bra.b   .plane_1
+.no_plane_1
+    
+    lea (BOB_16X16_PLANE_SIZE*2,a0),a0
+.plane_1
     lea	screen_data+SCREEN_PLANE_SIZE*2,a1
     move.l  a1,a2   ; just restored background
     ; plane 2
     ; a3 is already computed from first cookie cut blit
-    lea (BOB_16X16_PLANE_SIZE*2,a0),a0
     move.l  a1,a6
     move.w d3,d0
     move.w d4,d1
@@ -5863,6 +5905,8 @@ next_level_is_bonus_level
     dc.b    0
 nb_lives:
     dc.b    0
+rustler_level:
+    dc.b    0
 new_life_restart
     dc.b    0
 bonus_sprites:
@@ -6299,6 +6343,8 @@ record_input_table:
 grid_backup_plane
     ds.b    SCREEN_PLANE_SIZE
 rect_backup_plane
+    ds.b    SCREEN_PLANE_SIZE
+paint_backup_plane
     ds.b    SCREEN_PLANE_SIZE
 dot_table
     ds.b    NB_TILES_PER_LINE*NB_TILE_LINES*16
