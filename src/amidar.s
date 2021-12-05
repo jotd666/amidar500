@@ -90,9 +90,6 @@ Execbase  = 4
 
 ; ---------------debug/adjustable variables
 
-; uncomment to test intermission screen
-;;INTERMISSION_TEST = THIRD_INTERMISSION_LEVEL
-
 ; if set skips intro, game starts immediately
 ;DIRECT_GAME_START
 
@@ -108,8 +105,10 @@ Execbase  = 4
 
 EXTRA_LIFE_SCORE = 30000/10
 EXTRA_LIFE_PERIOD = 70000/10
+DEFAULT_HIGH_SCORE = 10000/10
+NB_HIGH_SCORES = 10
 
-START_LEVEL = 1
+START_LEVEL = 2
 
 BONUS_PENDING = 0
 BONUS_WON = 1
@@ -191,12 +190,11 @@ DIRF_UP = 1<<DIRB_UP
 
 STATE_PLAYING = 0
 STATE_GAME_OVER = 1*4
-STATE_LEVEL_COMPLETED = 2*4
+STATE_BONUS_SCREEN = 2*4
 STATE_NEXT_LEVEL = 3*4
 STATE_LIFE_LOST = 4*4
 STATE_INTRO_SCREEN = 5*4
 STATE_GAME_START_SCREEN = 6*4
-STATE_BONUS_SCREEN = 7*4
 
 
 ; offset for enemy animations
@@ -218,12 +216,12 @@ DEF_STATE_CASE_TABLE:MACRO
 .case_table
     dc.l    .playing
     dc.l    .game_over
-    dc.l    .level_completed
+    dc.l    .bonus_screen
     dc.l    .next_level
     dc.l    .life_lost
     dc.l    .intro_screen
     dc.l    .game_start_screen
-    dc.l    .bonus_screen
+
     ENDM
     
 ; write current PC value to some address
@@ -446,9 +444,7 @@ intro:
     lea _custom,a5
     move.w  #$7FFF,(intena,a5)
 
-    
-    ; on some levels, there's an intermission sequence
-
+   
     bsr wait_bof
     
     bsr draw_score
@@ -512,8 +508,8 @@ intro:
     bra.b   intro
 .bonus_screen
 .playing
-.level_completed
     bra.b   .mainloop
+
 .game_over
     bra.b   .mainloop
 .next_level
@@ -540,7 +536,36 @@ intro:
     subq.b   #1,nb_lives
     bne.b   .new_life
 
+    ; game over: check if score is high enough 
+    ; to be inserted in high score table
+    move.l  score(pc),d0
+    lea     hiscore_table(pc),a0
+    moveq.w  #NB_HIGH_SCORES-1,d1
+.hiloop
+    cmp.l  (a0)+,d0
+    bcs.b   .lower
+    ; higher or equal to a score
+    ; shift all scores below to insert ours
+    st.b    highscore_needs_saving
+    move.l  a0,a1
+    subq.w  #4,a0
+    move.l  a0,a2   ; store for later
+    tst.w   d1
+    beq.b   .storesc    ; no lower scores: exit (else crash memory!)
+.hishift_loop
+    move.l  (a0)+,(a1)+
+    dbf d1,.hishift_loop
+.storesc
+    move.l  d0,(a2)
+    bra.b   .hiout
+.lower
+    dbf d1,.hiloop
+.hiout    
+        ; high score
+
     ; save highscores if whdload
+    tst.b   highscore_needs_saving
+    beq.b   .no_save
     tst.l   _resload
     beq.b   .no_save
     tst.w   cheat_keys
@@ -656,6 +681,7 @@ init_new_play:
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
+    clr.w   completed_music_timer
     move.l  #EXTRA_LIFE_SCORE,score_to_track
     move.w  #START_LEVEL-1,level_number
     clr.b   bonus_sprites
@@ -665,21 +691,25 @@ init_new_play:
     rts
     
 init_level: 
-    
+    clr.b   nb_rectangles
     ; sets initial number of dots
+
     lea rectlist_1(pc),a0
+    ; level
+    move.w  level_number(pc),d2
+    btst    #0,d2
+    beq.b   .riloop
+    lea rectlist_2,a0
 .riloop
     move.l  (a0)+,d0
     beq.b   .out
+    addq.b  #1,nb_rectangles
     move.l  d0,a1
     move.w  mdots(a1),cdots(a1)
     bra.b   .riloop
     
 .out
     
-    ; level
-    move.w  level_number(pc),d2
-    btst    #0,d2
   
     
     clr.w   power_state_counter
@@ -961,9 +991,16 @@ init_player
 .no_clear
 
     lea player(pc),a0
-
-    move.l  #maze_1_wall_table,maze_wall_table      ; temp depends on level
+    move.w  level_number(pc),d0
+    btst    #0,d0
+    bne.b   .level2
+    move.l  #maze_1_wall_table,maze_wall_table
     move.l  #'COPI',character_id(a0)
+    bra.b   .cont
+.level2
+    move.l  #maze_2_wall_table,maze_wall_table
+    move.l  #'RUST',character_id(a0)
+.cont
     move.w  #NB_TILES_PER_LINE*4,xpos(a0)
 	move.w	#Y_MAX,ypos(a0)
 	move.w 	#LEFT,direction(a0)
@@ -1258,8 +1295,7 @@ draw_all
 .bonus_screen
     tst.w   bonus_text_screen_countdown
     beq.b   .maze_part
-    ; cmp.w #dddddd
-    ; bne.b .skip_draw
+    bsr     hide_sprites
     move.w  #72,d0
     move.w  #40,d1
     lea     .bonus_stage_text(pc),a0
@@ -1421,7 +1457,6 @@ draw_all
     beq.b   draw_start_screen
     rts
     
-.level_completed
 .life_lost
 .next_level
 
@@ -1435,7 +1470,6 @@ PLAYER_ONE_Y = 102-14
     bsr write_game_over
     bra.b   .draw_complete
 .playing
-
     tst.b   delete_last_star_message
     beq.b   .no_del_star
     bsr delete_last_star
@@ -1474,8 +1508,6 @@ PLAYER_ONE_Y = 102-14
     move.l  high_score(pc),d4
     cmp.l   d2,d4
     bcc.b   .no_score_update
-    ; high score
-    st.b    highscore_needs_saving
     
     move.l  d2,high_score
     bsr draw_high_score
@@ -1971,10 +2003,16 @@ draw_intro_screen
     dc.b    "- SCORE RANKING -",0
     even
     
-hiscore_table:
 high_score
-    REPT    10
-    dc.l    1000
+    dc.l    DEFAULT_HIGH_SCORE
+hiscore_table:
+    ; test decreasing score
+    REPT    NB_HIGH_SCORES
+    dc.l    (DEFAULT_HIGH_SCORE/10)*(10-REPTN)
+    ENDR
+    
+    REPT    NB_HIGH_SCORES
+    dc.l    DEFAULT_HIGH_SCORE
     ENDR
 
 draw_char_command
@@ -2355,8 +2393,8 @@ draw_maze:
     move.b  d0,(NB_BYTES_PER_LINE,a1)
     move.b  d0,(a1)+
     dbf     d1,.hloop
-    
-    move.b  #$F0,d0
+    ; rightmost end, 2 bits not drawn
+    move.b  #$E0,d0
     move.b  d0,(NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
     move.b  d0,(NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
     move.b  d0,(NB_BYTES_PER_LINE,a1)
@@ -2925,6 +2963,7 @@ level2_interrupt:
     bra.b   .no_playing
 .no_longer_bonus
 
+
 .no_playing
 
     cmp.b   _keyexit(pc),d0
@@ -3224,14 +3263,14 @@ update_all
     subq.w  #1,last_bonus_timeout
     bne.b   .continue
     ; next level
-    move.w  #STATE_LEVEL_COMPLETED,current_state
+    bsr .bonus_level_completed
 .continue
     rts
     
 .life_lost
     rts  ; bra update_power_pill_flashing
 
-.level_completed
+.bonus_level_completed
     bsr hide_sprites
 
     bsr     stop_sounds
@@ -3252,7 +3291,21 @@ update_all
 .cont
     subq.l  #1,state_timer
     rts
+    ; update
 .playing
+    move.w   completed_music_timer(pc),d0
+    beq.b   .no_completed
+    subq.w  #1,d0
+    move.w  d0,completed_music_timer
+    bne.b   .completed_music_playing
+    
+    move.w  #STATE_NEXT_LEVEL,current_state
+    clr.l   state_timer     ; without this, bonus level isn't drawn
+    bsr     hide_sprites    ; hide sprites as bonus level only uses 1 or 2 sprites
+.completed_music_playing
+    rts
+.no_completed
+
     tst.l   state_timer
     bne.b   .no_first_tick
     moveq.w   #1,d0
@@ -3306,6 +3359,7 @@ update_all
     bne.b   .power_continues
 .skip_a_lot
     ; reset enemies palette
+
     bsr set_enemy_normal_palette
 
     tst.w   player_killed_timer
@@ -4083,14 +4137,18 @@ move_fall
     bra.b   .no_wrap
 .no_power
     ; power state is already ended
-    move.w  d1,previous_ypos(a4)
+    move.w  d1,previous_ypos(a4)    
     tst.w   d1
     bpl.b   .no_neg
     ; negative: no double fall speed
     clr.w   d0
 .no_neg
-    cmp.w   #MAZE_HEIGHT+8,d1
-    bcs.b   .no_wrap
+    ; make sure we get the proper range
+    cmp.w   #MAZE_HEIGHT+12,d1
+    beq.b   .wrap
+    cmp.w   #MAZE_HEIGHT+13,d1
+    bne.b   .no_wrap
+.wrap
     move.w #-8,d1       ; wrap up
 .no_wrap    
     btst    #0,d0
@@ -4099,6 +4157,10 @@ move_fall
 .one
     add.w  #1,d1
     move.w  d1,ypos(a4)
+    bne.b   .no_zero
+    ; to the top, reset
+    move.w  previous_mode(a4),mode(a4)
+.no_zero
     rts
 .crash
     move.w  #MAZE_HEIGHT,ypos(a4)
@@ -4192,14 +4254,11 @@ set_enemy_power_blink_palette
     rts
 
 ; < A0: ghost structure
-; trashes: D0,D1,A0,A1
+; trashes: D0,A0,A1
 set_enemy_normal_palette
     move.w  nb_enemies_but_thief(pc),d0
     lea enemies(pc),a0
 .gloop
-    move.w  mode(a0),d1
-    cmp.w   #MODE_FRIGHT,d1
-    beq.b   .next
     move.l  color_register(a0),a1
     ; set/reset palette
     move.l  palette(a0),(a1)+
@@ -4677,10 +4736,15 @@ count_dot
     dbf d2,.filly
 
     movem.l (a7)+,d1-d2/a0-a3
+
+    subq.b  #1,nb_rectangles
+    beq.b   level_completed
+    
     moveq.l   #0,d0
     move.w  points(a0),d0
     beq.b   .still_dots
     bsr add_to_score        ; even levels: bonus awarded on rectfill
+
     clr d0
 .still_dots
     move.w  d0,cdots(a0)
@@ -4741,8 +4805,12 @@ animate_player
     rts
 
 
-level_completed:  
-    move.w  #STATE_LEVEL_COMPLETED,current_state
+level_completed: 
+    bsr stop_sounds
+    lea win_level_sound,a0
+    bsr play_fx
+    st.b    next_level_is_bonus_level
+    move.w  #ORIGINAL_TICKS_PER_SEC*6,completed_music_timer
     rts
 
     
@@ -5628,7 +5696,7 @@ save_highscores
     move.l  d0,a2
     lea scores_name(pc),a0    
     lea hiscore_table(pc),a1
-    move.l #40,d0   ; size
+    move.l #4*NB_HIGH_SCORES,d0   ; size
     jmp  (resload_SaveFile,a2)
     
 .standard
@@ -5778,6 +5846,8 @@ jump_frame
     dc.w    0
 enemy_kill_frame
     dc.w    0
+completed_music_timer:
+    dc.w    0
 maze_outline_color
     dc.w    0
 can_eat_enemies_mode_pending
@@ -5800,6 +5870,8 @@ bonus_sprites:
 nb_stars:
     dc.b    0
 nb_special_rectangles:
+    dc.b    0
+nb_rectangles:
     dc.b    0
 music_playing:    
     dc.b    0
@@ -6115,6 +6187,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY start_music,1,SOUNDFREQ
     SOUND_ENTRY lose_bonus,1,SOUNDFREQ
     SOUND_ENTRY win_bonus,1,SOUNDFREQ
+    SOUND_ENTRY win_level,1,SOUNDFREQ
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ
     SOUND_ENTRY enemy_falling,2,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
@@ -6597,6 +6670,10 @@ win_bonus_raw
     incbin  "win_bonus.raw"
     even
 win_bonus_raw_end
+win_level_raw
+    incbin  "win_level.raw"
+    even
+win_level_raw_end
 ping_raw
     incbin  "ping.raw"
     even

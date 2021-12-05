@@ -30,22 +30,21 @@ CONTROLS:
 
 TODO/ISSUES:
 
-- intro: cattle slightly too low in y
-- end of power: no palette reset!!! only if enemies killed
 - turn correction not perfect, sometimes character blocks
 - level 1: thief almost 8 loops: attacks
 - level 2: thief almost 7 loops: attacks
 - so on...
 - rip thief attack sound
+- after bonus level 2 doesn't start
 - thief attack pauses, then more or less random, then follow
-- highscore table: duplicate highscore from actual table
 - enemy speed increasing
 - number of enemies increasing
-- killed on horiz: hanging, killed on vertical: falling
-- enemy killed score 1 score per enemy sprite
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- level 2: music
+- level 2: music not played when launched after bonus
 - level 2: paint!!!
+- level 2: thief palette is wrong (blue/white is reverted, fright mode is green)
+- level 2: fall frames don't match (match level 1)
+- extra life: corrupt graphics on top right
 
 CREDITS:
 
