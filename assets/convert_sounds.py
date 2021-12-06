@@ -6,7 +6,7 @@ sox = r"k:\progs\sox-14-4-2\sox.exe"
 
 wav_files = ["jump.wav","credit.wav",
 "eat.wav","enemy_falling.wav","extra_life.wav","enemy_hit.wav","ping.wav",
-"enemy_killed.wav","player_killed.wav","lose_bonus.wav"]
+"enemy_killed.wav","player_killed.wav","lose_bonus.wav","paint.wav","filled.wav"]
 outdir = "../sounds"
 
 

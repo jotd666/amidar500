@@ -212,6 +212,8 @@ def process_mazes():
             fw.write("\nmaze_{}_wall_table:\n".format(level))
             # binary table with all walkable tiles set to 1
             dot_matrix[-1] = [1]*26
+            if level==2:
+                dot_matrix[-1][10:16] = [3]*6
             for row in dot_matrix:
                 fw.write("\tdc.b\t")
                 fw.write(",".join(str(x) for x in row))
