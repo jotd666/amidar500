@@ -901,12 +901,19 @@ init_enemies
 .cloop
     add.w   #Enemy_SIZEOF,a0
     dbf d7,.cloop
+
+    move.w  level_number(pc),d0
+    and.w   #3,d0
+    lsl.w   #2,d0
+    lea     enemy_start_position_table(pc),a2
+    move.l  (a2,d0.w),a2
     
     move.w nb_enemies_but_thief(pc),d7
     subq.w  #1,d7
     moveq.l #0,d0
     moveq.w #1,d1
     clr.w   d2
+    
     lea enemies+Enemy_SIZEOF(pc),a0
 .igloop
     ; copy all 4 "normal" colors
@@ -929,9 +936,10 @@ init_enemies
 
    
     clr.w   turn_lock(a0)
-	move.w	#4,ypos(a0)
-	move.w	d0,xpos(a0)
-    add.w   #40,d0
+	move.w	(a2)+,xpos(a0)
+    move.w  (a2)+,d0
+    addq.w  #4,d0
+	move.w	d0,ypos(a0)
     move.w  #DOWN,direction(a0)
     move.w  #MODE_NORMAL,mode(a0)
     
@@ -6427,7 +6435,30 @@ speeds_level21
 powerdots
     ds.l    4
 
-    
+enemy_start_position_table
+    dc.l    .level1
+    dc.l    .level2
+    dc.l    .level3
+    dc.l    .level1
+
+.level1:
+    REPT    6
+    dc.w    REPTN*40,0
+    ENDR
+.level2
+    dc.w    0,0
+    dc.w    40,36
+    dc.w    80,36+24
+    dc.w    120,36+48
+    dc.w    160,36+24*3
+    dc.w    200,36+24*4
+.level3
+    dc.w    120,0
+    dc.w    120,36
+    dc.w    120,36+24
+    dc.w    120,106
+    dc.w    120,176-24
+    dc.w    120,176
 
 game_palette
     include "palette.s"

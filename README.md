@@ -23,7 +23,7 @@ FEATURES:
 
 CONTROLS:
 
-- joystick directions/arrows: move pacman
+- joystick directions/arrows: move player
 - space/fire button: start game
 - P/second button: pause
 - F10 (or quitkey): quit
