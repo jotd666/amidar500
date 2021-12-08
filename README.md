@@ -45,6 +45,9 @@ TODO/ISSUES:
 - level 2: fall frames don't match (match level 1)
 - extra life: corrupt graphics on top right
 - level 1: normal music loop is wrong
+- enemy start positions: level 2: in diagonal, level 3: aligned
+- collision: sometimes player goes through enemy
+- gameover with score: go to score table directly with score flashing
 
 CREDITS:
 

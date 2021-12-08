@@ -91,7 +91,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
@@ -108,7 +108,7 @@ EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
 NB_HIGH_SCORES = 10
 
-START_LEVEL = 2
+START_LEVEL = 1
 
 BONUS_PENDING = 0
 BONUS_WON = 1
@@ -164,10 +164,10 @@ MSG_HIDE = 2
 
 NB_FLASH_FRAMES = 14
 
-; matches the pac kill animation
+
 PLAYER_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 ENEMY_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
-
+GAME_OVER_TIMER = ORIGINAL_TICKS_PER_SEC*3
 
 ; direction enumerates, follows order of enemies in the sprite sheet
 RIGHT = 0
@@ -573,7 +573,7 @@ intro:
     bsr     save_highscores
 .no_save
     ; 3 seconds
-    move.l  #ORIGINAL_TICKS_PER_SEC*3,state_timer
+    move.l  #GAME_OVER_TIMER,state_timer
     move.w  #STATE_GAME_OVER,current_state
     bra.b   .game_over
 .out      
@@ -650,6 +650,16 @@ clear_screen
     dbf d0,.cp
     rts
 
+clear_playfield_planes
+    lea screen_data,a1
+    bsr clear_playfield_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bsr clear_playfield_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bsr clear_playfield_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bra clear_playfield_plane
+    
 ; < A1: plane start
 clear_playfield_plane
     movem.l d0-d1/a0-a1,-(a7)
@@ -660,10 +670,38 @@ clear_playfield_plane
 .cl
     clr.l   (a0)+
     dbf d1,.cl
+    clr.w   (a0)
     add.l   #NB_BYTES_PER_LINE,a1
     dbf d0,.cp
     movem.l (a7)+,d0-d1/a0-a1
     rts
+
+clear_maze
+    lea screen_data,a1
+    bsr clear_maze_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bsr clear_maze_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bsr clear_maze_plane
+    add.w   #SCREEN_PLANE_SIZE,a1
+    bra clear_maze_plane
+    
+; < A1: plane start
+clear_maze_plane
+    movem.l d0-d1/a0-a1,-(a7)
+    add.w   #NB_BYTES_PER_LINE*4,a1
+    move.w #MAZE_HEIGHT+7,d0
+.cp
+    move.w  #NB_BYTES_PER_MAZE_LINE/4,d1
+    move.l  a1,a0
+.cl
+    clr.l   (a0)+
+    dbf d1,.cl
+    add.l   #NB_BYTES_PER_LINE,a1
+    dbf d0,.cp
+    movem.l (a7)+,d0-d1/a0-a1
+    rts
+
     
 init_new_play:
     clr.l   state_timer
@@ -1466,7 +1504,21 @@ PLAYER_ONE_Y = 102-14
 
     
 .game_over
-    bsr write_game_over
+    cmp.l   #GAME_OVER_TIMER,state_timer
+    bne.b   .draw_complete
+    bsr hide_sprites
+    bsr clear_maze
+
+    move.w  #72,d0
+    move.w  #136,d1
+    move.w  #$0f00,d2   ; red
+    lea player_one_string(pc),a0
+    bsr write_color_string
+    move.w  #72,d0
+    add.w   #16,d1
+    lea game_over_string(pc),a0
+    bsr write_color_string
+    
     bra.b   .draw_complete
 .playing
     tst.b   delete_last_star_message
@@ -2362,14 +2414,7 @@ draw_maze:
 
     ;;move.b  (1,a1),total_number_of_dots
     
-    lea screen_data,a1
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    bsr clear_playfield_plane
+    bsr clear_playfield_planes
     
     lea screen_data+MAZE_ADDRESS_OFFSET,a1
     
@@ -2590,13 +2635,7 @@ draw_bonus_maze:
     move.w  #$F00,(2,a0)  ; red outline
     move.w  #$FF0,(6,a0)  ; yellow fill
 
-
-    lea screen_data,a1
-    REPT    4
-    bsr clear_playfield_plane
-    add.w   #SCREEN_PLANE_SIZE,a1
-    ENDR
-        
+    bsr clear_playfield_planes        
         
     ; vertical edges
     lea screen_data+BONUS_MAZE_ADDRESS_OFFSET,a1
@@ -3340,10 +3379,15 @@ update_all
      rts
      
 .game_over
+    cmp.l   #GAME_OVER_TIMER,state_timer
+    bne.b   .no_first
     bsr stop_sounds
-
+    moveq.l  #10,d0
+    bsr     play_music
+.no_first
     tst.l   state_timer
     bne.b   .cont
+    bsr stop_sounds
     move.w  #STATE_INTRO_SCREEN,current_state
 .cont
     subq.l  #1,state_timer
@@ -5166,10 +5210,30 @@ get_dot_rectangles:
 ; args:
 ; < d0 : x (screen coords)
 ; < d1 : y
-; > d0.b : 1 if collision, 0 if no collision
+; > d0.b : not 0 if maze, 0 if no maze
+; out of bounds returns -1 which makes it legal to move to (edges)
 ; trashes: a0,a1,d1
 
 is_location_legal:
+    bsr get_tile_type
+    move.b  (a0),d0    ; retrieve value
+    rts
+    
+; what: checks what is below x,y
+; returns 0 out of the maze
+; (allows to handle edges, with a limit given by
+; the move methods)
+; args:
+; < d0 : x (screen coords)
+; < d1 : y
+; > a0: points on byte value to read (can be written to unless it points on negative value!!)
+; which is 0 if no maze, 
+;                  1 if has dot (or needs painting)
+;                  2 if temp paint or dot eaten
+;                  3 if fully painted
+; trashes: a1,d0,d1
+
+get_tile_type:
     cmp.w   #Y_MAX+1,d1
     bcc.b   .out_of_bounds
     cmp.w   #X_MAX+1,d0
@@ -5183,13 +5247,17 @@ is_location_legal:
     move.l maze_wall_table(pc),a0
     add.w   d1,a0
     lsr.w   #3,d0   ; 8 divide
-    move.b  (a0,d0.w),d0    ; retrieve value
+    add.w   d0,a0
+    move.b  (a0),d0    ; retrieve value
     rts
 .out_of_bounds
-    move.b   #1,d0  ; allowed, the move routine already has bounds
+    lea .minus_one(pc),a0  ; allowed, the move routine already has bounds, points on -1
     rts
    
-
+.minus_one:
+    dc.b    -1
+    even
+    
 ; what: blits 16x16 data on one plane
 ; args:
 ; < A0: data (16x16)
