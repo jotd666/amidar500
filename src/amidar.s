@@ -110,6 +110,11 @@ NB_HIGH_SCORES = 10
 
 START_LEVEL = 1
 
+N = 0;  if no maze, 
+D = 1;                  if has dot (or needs painting)
+T = 2;                  if temp paint or dot eaten
+F = 3;    if fully painted
+
 BONUS_PENDING = 0
 BONUS_WON = 1
 BONUS_LOST = 2
@@ -4552,6 +4557,15 @@ update_player
     
     tst.b   rustler_level
     bne.b   .rustler
+    bsr get_tile_type
+    cmp.b   #D,(a0)
+    bne.b   .z3
+    ; eat dot
+    move.b   #F,(a0)
+    ; restore x,y to get rectangles
+    move.w  d2,d0
+    move.w  d3,d1
+
     bsr  get_dot_rectangles
     ; set registers d4-d6 with pointers on rectangles
     move.l  d1,d5
@@ -5163,18 +5177,12 @@ is_on_bonus:
     clr.b   d0
     rts
     
-; what: checks if x,y collides with dot
-; returns valid location out of the maze
-; (allows to handle edges, with a limit given by
-; the move methods)
-;
-; this is only valid for level 1, once eaten, a location
-; cannot be "de-eaten"
+; what: returns which rectangle(s) contain the current x,y
 ; 
 ; args:
 ; < d0 : x (screen coords)
 ; < d1 : y
-; > d0,d1: pointers on linked rectangles (either can be NULL)
+; > d0,d1,d2: pointers on linked rectangles (either can be NULL)
 ; trashes: a0
 
 get_dot_rectangles:
@@ -5198,17 +5206,15 @@ get_dot_rectangles:
     add.w   d0,a0
     add.w   d0,a0
     
-    move.l  (a0),D0    ; retrieve value of first pointer
-    move.l  (4,a0),D1    ; retrieve value of second pointer
-    move.l  (8,a0),D2    ; retrieve value of second pointer
-    ; now that it's been checked and returned, clear pointers
-    clr.l   (a0)+
-    clr.l   (a0)+
-    clr.l   (a0)+
+    move.l  (a0)+,D0    ; retrieve value of first pointer
+    move.l  (a0)+,D1    ; retrieve value of second pointer
+    move.l  (a0),D2    ; retrieve value of third pointer
+
     rts
 .out_of_bounds
     moveq.l   #0,d0
     moveq.l   #0,d1
+    moveq.l   #0,d2
     rts
     
 ; what: checks if x,y collides with maze
@@ -5223,6 +5229,15 @@ get_dot_rectangles:
 ; trashes: a0,a1,d1
 
 is_location_legal:
+    ; make up for center
+    ; this is to simulate old behaviour
+    ;
+    ; now get_tile_type is used to get the type of the tile
+    ; and 4 is added to y like in rectangle fetch
+    ;
+    ; get_tile_type has slightly different requirements. But subtracting
+    ; 4 to Y before calling it allows to re-use it in here
+    sub.w   #4,d1       
     bsr get_tile_type
     move.b  (a0),d0    ; retrieve value
     rts
@@ -5248,6 +5263,8 @@ get_tile_type:
     bcc.b   .out_of_bounds
     ; no need to test sign (bmi) as bcc works unsigned so works on negative!
     ; apply x,y offset
+    add.w   #4,d1       ; center
+
     lsr.w   #3,d1       ; 8 divide : tile
     lea     mul26_table(pc),a0
     add.w   d1,d1
