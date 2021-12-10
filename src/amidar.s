@@ -1044,13 +1044,11 @@ init_player
     lea player(pc),a0
     tst.b   rustler_level
     bne.b   .level2
-    move.l  #maze_1_wall_table,maze_wall_table
     move.l  #'COPI',character_id(a0)
     bra.b   .cont
 .level2
-    move.l  #maze_2_wall_table,maze_wall_table
     move.l  #'RUST',character_id(a0)
-.cont
+.cont    
     move.w  #NB_TILES_PER_LINE*4,xpos(a0)
 	move.w	#Y_MAX,ypos(a0)
 	move.w 	#LEFT,direction(a0)
@@ -1060,6 +1058,7 @@ init_player
     clr.w   prepost_turn(a0)
     move.w  #0,frame(a0)
 
+    
     
     move.w  #ORIGINAL_TICKS_PER_SEC,D0   
     tst.b   music_played
@@ -2268,24 +2267,6 @@ clear_plane_any_blitter_internal:
     rts
 
     
-draw_last_life:
-    ; TODO 
-    
-    lea lives,a0
-    move.b  nb_lives(pc),d3
-    ext     d3
-    subq.w  #2,d3
-    bmi.b   .out
-    lsl.w   #4,d3
-    add.w #NB_BYTES_PER_MAZE_LINE*8,d3
-    moveq.l #-1,d2  ; mask
-
-    lea	screen_data+SCREEN_PLANE_SIZE,a1
-    move.w  d3,d0
-    moveq.l #0,d1
-    bsr blit_plane
-.out
-    rts
     
 delete_last_star
     move.b  nb_stars(pc),d7
@@ -2334,6 +2315,11 @@ draw_stars:
         even
         
 LIVES_OFFSET = (MAZE_HEIGHT+18)*NB_BYTES_PER_LINE+1
+
+draw_last_life
+    move.w   #1,d0      ; draw only last life
+    bra.b   draw_the_lives
+    
 draw_lives:
     moveq.w #3,d7
     lea	screen_data+LIVES_OFFSET,a1
@@ -2345,6 +2331,8 @@ draw_lives:
     add.w   #SCREEN_PLANE_SIZE,a1
     dbf d7,.cloop
     
+    clr D0
+draw_the_lives
     move.b  nb_lives(pc),d7
     ext     d7
     subq.w  #2,d7
@@ -2354,7 +2342,7 @@ draw_lives:
     lea lives,a0
     lea	screen_data+LIVES_OFFSET,a1
     add.l   d7,a1
-    moveq   #3,d2
+    moveq   #3,d2    
 .ploop
     move.l  a1,a2
     REPT    8
@@ -2363,6 +2351,8 @@ draw_lives:
     ENDR
     add.w   #SCREEN_PLANE_SIZE,a1
     dbf     d2,.ploop
+    tst d0
+    bne.b   .out    ; just draw last life
     dbf d7,.lloop
 .out
     rts
@@ -2754,55 +2744,40 @@ store_sprite_copperlist
     move.w  d0,(2,a0)
     rts
 
+
+   ; copy the maze initial data that is destroyed when playing
+    lea     maze_2_wall_table,a1
+   lea     maze_wall_table_copy,a0
+    move.l  a0,maze_wall_table
+    move.w  #(NB_TILES_PER_LINE*NB_TILE_LINES)-1,d0
+.copy
+    move.b  (a1)+,(a0)+
+    dbf     d0,.copy
     
 init_dots:
     ; init dots
-    lea maze_1_dot_table_read_only(pc),a0
-    lea dot_table,a1
+    move.l  #maze_1_dot_table_read_only,dot_table
+    lea     maze_1_wall_table,a0
+copy_maze_data
+    lea     maze_wall_table_copy,a1
+    move.l  a1,maze_wall_table
     move.l  #NB_TILE_LINES*NB_TILES_PER_LINE-1,d0
 .copy
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
+    move.b  (a0)+,(a1)+
     dbf d0,.copy
     rts
-    
     
 
 init_paint:
     ; init dots
-    lea maze_2_dot_table_read_only,a0
-    lea dot_table,a1
-    move.w  #NB_TILE_LINES*NB_TILES_PER_LINE-1,d0
-.copy
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
-    dbf d0,.copy
-    
-
-    
-    ; this is going to be used as temp/permanent paint markers
-
-    lea paint_table,a1
-    move.w  #NB_TILE_LINES*NB_TILES_PER_LINE-1,d0
-.clr
-    clr.b  (a1)+
-    dbf d0,.clr
-    ; the central segment of the last row is painted
-    lea paint_table+10-NB_TILES_PER_LINE,a1
-    moveq.w #5,d0
-.paint
-    move.b  #2,(a1)+
-    dbf d0,.paint
-    rts
+    move.l  #maze_2_dot_table_read_only,dot_table
+    lea     maze_2_wall_table,a0
+    bra     copy_maze_data
     
     
 draw_dots:
     lea screen_data+MAZE_ADDRESS_OFFSET+SCREEN_PLANE_SIZE-NB_BYTES_PER_LINE,a2
-    lea dot_table,a0
+    lea maze_1_dot_table_read_only,a0
     move.w  #NB_TILE_LINES-1,d1
 .vloop
     move.l  a2,a1
@@ -3234,6 +3209,8 @@ update_all
     move.w  d0,bonus_text_screen_countdown
     bne.b   .no_bonus_init  ; still in bonus pre-screen
     
+    ; make up for level increase
+    subq.w  #1,level_number
      ; pick a maze randomly. There are 3 different mazes
     
 .random_loop
@@ -3370,10 +3347,11 @@ update_all
     move.w  last_bonus_timeout(pc),d0
     cmp.w   #ORIGINAL_TICKS_PER_SEC*2,d0
     bne.b   .no_stopmus
+    cmp.w  #BONUS_LOST,bottom_reached
+    beq.b   .no_stopmus
     bsr stop_sounds
 .no_stopmus
-    subq.w  #1,d0
-    move.w  d0,last_bonus_timeout
+    subq.w  #1,last_bonus_timeout
     bne.b   .continue
     ; next level
     bsr .bonus_level_completed
@@ -5147,35 +5125,7 @@ ye  set ys+16       ; size = 16
     dc.b  ys&255, 0, ye&255, ((ys>>6)&%100) | ((ye>>7)&%10)
   endr
 
-    
-; what: checks if x,y has a dot/fruit/power pill 
-; marks the zone to -1 when read (to differentiate with 0 for redraw routine)
-; args:
-; < d0 : x (screen coords)
-; < d1 : y
-; > d0 : nonzero (1,2) if collision (dot,power pill), 0 if no collision
-; trashes: a0,a1,d1
-
-is_on_bonus:
-    bra.b   .cleared
-    lea dot_table,a0
-    ; apply x,y offset
-    lsr.w   #3,d1       ; 8 divide
-    lsl.w   #5,d1       ; times 32
-    add.w   d1,a0
-    lsr.w   #3,d0   ; 8 divide
-    add.w   d0,a0
-    move.b  (a0),d0
-    bmi.b   .cleared
-    bne.b   .pill
-    rts
-.pill
-    ; only once!
-    st.b   (a0)
-    rts
-.cleared
-    clr.b   d0
-    rts
+ 
     
 ; what: returns which rectangle(s) contain the current x,y
 ; 
@@ -5199,7 +5149,7 @@ get_dot_rectangles:
     add.w   d1,d1
     move.w  (a0,d1.w),d1    ; times 26
     lsl.w   #4,d1   ; times 16 (4 32 bit longwords per slot)
-    lea dot_table,a0
+    move.l dot_table(pc),a0
     add.w   d1,a0
     and.b   #$F8,d0   ; align on 8 (2 32 bit longwords per slot)
     
@@ -5984,7 +5934,7 @@ previous_valid_direction
 
 global_speed_table
     dc.l    0
-dot_table_read_only:
+dot_table:
     dc.l    0
 maze_wall_table:
     dc.l    0
@@ -6523,10 +6473,10 @@ rect_backup_plane
     ds.b    SCREEN_PLANE_SIZE
 paint_backup_plane
     ds.b    SCREEN_PLANE_SIZE
-dot_table
-    ds.b    NB_TILES_PER_LINE*NB_TILE_LINES*16
-paint_table
+maze_wall_table_copy
     ds.b    NB_TILE_LINES*NB_TILES_PER_LINE
+    
+    
     even
     
     
