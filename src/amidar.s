@@ -91,10 +91,13 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
+
+; enemies not moving/no collision detection
+NO_ENEMIES
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -108,12 +111,25 @@ EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
 NB_HIGH_SCORES = 10
 
-START_LEVEL = 1
+START_LEVEL = 2
 
 N = 0;  if no maze, 
-D = 1;                  if has dot (or needs painting)
-T = 2;                  if temp paint or dot eaten
+U = 1;                  if has dot (unpainted)
+T = 2;                  if temp paint
 F = 3;    if fully painted
+
+TSHIFT = 2
+; 16 transition values total (including N state which is not possible)
+; so 9 transition possible values
+TU = (T<<TSHIFT)+U
+FF = (F<<TSHIFT)+F
+UU = (U<<TSHIFT)+U
+TT = (T<<TSHIFT)+T
+FU = (F<<TSHIFT)+U
+UF = (U<<TSHIFT)+F
+TF = (T<<TSHIFT)+F
+UT = (U<<TSHIFT)+T
+FT = (F<<TSHIFT)+T
 
 BONUS_PENDING = 0
 BONUS_WON = 1
@@ -161,6 +177,8 @@ X_MAX = (NB_BYTES_PER_MAZE_LINE-1)*8
 
 STARS_OFFSET = NB_BYTES_PER_MAZE_LINE-4+(NB_BYTES_PER_LINE)*(MAZE_HEIGHT+18)
 
+; maybe too many slots...
+NB_ROLLBACK_SLOTS = 30
 ; messages from update routine to display routine
 MSG_NONE = 0
 MSG_SHOW = 1
@@ -316,6 +334,7 @@ Start:
     ;;st.b    demo_mode
     ENDC
     
+    bsr init_state_transition_table
     bsr init_sound
     
     ; shut off dma
@@ -654,6 +673,64 @@ clear_screen
     add.l   #SCREEN_PLANE_SIZE,a1
     dbf d0,.cp
     rts
+
+ISTT:MACRO
+    move.l  #f_\1,(\2*4,a0)
+    ENDM
+    
+init_state_transition_table
+    lea state_transition_table(pc),a0
+    ISTT    temp_to_unpainted,TU 
+    ISTT    remains_painted,FF      ; do nothing
+    ISTT    remains_unpainted,UU    ; do nothing
+    ISTT    remains_temp,TT         ; possible (going backwards)
+    ISTT    unpainted_to_temp,UT    ; not possible
+    ISTT    painted_to_temp,FT      ; not possible
+    ISTT    temp_to_painted,TF      ; 
+    ISTT    unpainted_to_painted,UF 
+    ISTT    painted_to_unpainted,FU 
+    rts
+
+
+; all the routines below are called with
+; A0: pointer on current tile (to change it)
+
+f_temp_to_unpainted
+    ; keeps painting
+    rts
+f_temp_to_painted
+    ; cancels temp paint immediately
+    rts
+f_unpainted_to_painted
+    ; re-seeds compatible rectangles 
+    rts
+f_painted_to_unpainted
+    ; starts painting
+    rts
+    
+f_remains_temp
+f_remains_unpainted
+f_remains_painted
+    rts
+    
+f_unpainted_to_temp
+    blitz
+    nop
+    nop
+    nop
+    rts
+f_painted_to_temp
+    blitz
+    nop
+    nop
+    rts
+    
+f_unknown_transition
+    blitz
+    nop
+    rts
+
+
 
 clear_playfield_planes
     lea screen_data,a1
@@ -1033,14 +1110,13 @@ update_color_addresses
     dbf d7,.loop
     rts
     
-init_player
+init_player:
     clr.l   previous_valid_direction
     clr.w   death_frame_offset
     tst.b   new_life_restart
     bne.b   .no_clear
     clr.l   previous_player_address   ; no previous position
 .no_clear
-
     lea player(pc),a0
     tst.b   rustler_level
     bne.b   .level2
@@ -1048,7 +1124,18 @@ init_player
     bra.b   .cont
 .level2
     move.l  #'RUST',character_id(a0)
-.cont    
+    move.b  #F,previous_tile_type       ; comes from "fully painted"
+    ; set bottom rectangles (center and 1 left 1 right) as original rectangles
+    ; allowing those 3 and only those 3 to be painted at start
+    lea     original_rectangles(pc),a1
+    move.l  #rect_2_13,(a1)+
+    move.l  #rect_2_20,(a1)+
+    move.l  #rect_2_28,(a1)+
+    clr.l   (a1)+
+    bsr     copy_original_to_common_rectangles
+.cont
+    ; copy original rectangles to intersection rectangles
+    
     move.w  #NB_TILES_PER_LINE*4,xpos(a0)
 	move.w	#Y_MAX,ypos(a0)
 	move.w 	#LEFT,direction(a0)
@@ -1058,7 +1145,6 @@ init_player
     clr.w   prepost_turn(a0)
     move.w  #0,frame(a0)
 
-    
     
     move.w  #ORIGINAL_TICKS_PER_SEC,D0   
     tst.b   music_played
@@ -1086,7 +1172,6 @@ init_player
     
 
     move.w  #-1,player_killed_timer
-    move.w  #-1,ghost_eaten_timer
     clr.w   next_enemy_iteration_score
     clr.w   fright_timer    
     move.b  #3,nb_stars
@@ -1577,21 +1662,18 @@ PLAYER_ONE_Y = 102-14
 .no_score_update
     tst.b   demo_mode
     beq.b   .no_demo
-    ;;bsr wait_blit       ; wait for pacman to draw
     bsr write_game_over
 .no_demo
 .draw_complete
     rts
 
 stop_sounds
+    bsr stop_paint_sound
     lea _custom,a6
     clr.b   music_playing
     bra _mt_end
 
 
-
-    
-HIGHSCORE_RESTORE_ADDRESS = screen_data+2*SCREEN_PLANE_SIZE+(24+34)*NB_BYTES_PER_LINE+36
 
 ; < D2: highscore
 draw_high_score
@@ -1600,41 +1682,10 @@ draw_high_score
     move.w  #6,d3
     move.w  #$FFF,d4    
     bsr write_color_decimal_number
-    ; hack: save part of the last digits on the second plane
-    ; so it's not overwritten by mspacman on level 1 tunnel
-    ; also save the part of the "L" of "LEVEL"
 
-    lea HIGHSCORE_RESTORE_ADDRESS,a1
-    lea highscore_restore_buffer(pc),a0
-    move.w  #4,d0
-.save
-    move.w  (a1),(a0)+
-    move.w  (NB_BYTES_PER_LINE*14,a1),(a0)+
-    move.w  (NB_BYTES_PER_LINE*20,a1),(a0)+
-    add.w   #NB_BYTES_PER_LINE,a1
-    dbf d0,.save
 
     rts
 
-; repair the potential damage to highscore/level text
-; done by pacman blitted in the tunnel    
-; maybe it could have been fixed in some smarter way but that's
-; cheap enough
-restore_high_score:
-    lea HIGHSCORE_RESTORE_ADDRESS,a1
-    lea highscore_restore_buffer(pc),a0
-    move.w  #4,d0
-.rest
-    move.w  (a0)+,(a1)
-    move.w  (a0)+,(NB_BYTES_PER_LINE*14,a1)
-    move.w  (a0)+,(NB_BYTES_PER_LINE*20,a1)
-    add.w   #NB_BYTES_PER_LINE,a1
-    dbf d0,.rest
-
-    rts
-
-highscore_restore_buffer
-    ds.w    20
     
 write_game_over
     move.w  #72,d0
@@ -1858,7 +1909,6 @@ draw_intro_screen
     move.w  xpos(a0),d0
     move.w  ypos(a0),d1
 
-    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
     move.w  previous_xpos(a0),d2
     bmi.b   .no_diagonal
     cmp.w   d0,d2
@@ -1903,6 +1953,7 @@ draw_intro_screen
     move.b  (1,a1),(1,a2)
     move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
     rts
+    
 .no_part1
     ; nothing to animate in part 2 (highscores)
     cmp.b   #3,d0
@@ -2382,16 +2433,16 @@ draw_bonuses:
     
 maze_misc
     dc.l    level_1_maze,level_2_maze
-    dc.l    level_1_maze,level_2_maze
+    dc.l    level_3_maze,level_4_maze
     
 level_1_maze
-    dc.w    $F00,$CC9
+    dc.w    $F00,$CC9,$00F
 level_2_maze
-    dc.w    $0F0,$FF0
+    dc.w    $0F0,$FF0,$F00
 level_3_maze
-    dc.w    $0F0,$f91
+    dc.w    $0F0,$f91,$F0F
 level_4_maze
-    dc.w    $F00,$FF0
+    dc.w    $F00,$FF0,$0F0
     
 draw_maze:
     bsr wait_blit
@@ -2408,12 +2459,14 @@ draw_maze:
     and.w   #3,d0
     add.w   d0,d0
     add.w   d0,d0
-    move.l  maze_misc(pc),a1
-    add.w   d0,a1
+    lea  maze_misc(pc),a1
+    move.l  (a1,d0.w),a1
+    
     move.w  (a1)+,(2,a0)  ; dots, color 1
 	move.w  (a1)+,d0
     move.w  d0,(4,a0)  ; dots 
     move.w  d0,(6,a0)  ; dots+outline
+	move.w  (a1),(10,a0)    ; rect fill color
 
     ;;move.b  (1,a1),total_number_of_dots
     
@@ -2807,15 +2860,43 @@ draw_dot:
     move.b  #%11110000,(NB_BYTES_PER_LINE*2,a1)
     move.b  #%01100000,(NB_BYTES_PER_LINE*3,a1)
     rts
+
+; < A1 address
+; < D2 height
+paint_zone:
+    ; just copy the data of the backup plane
+    ; for this we have to compute what is A1 address offset
+    ; compared to second plane
+    ; probably faster than recomputing that from X,Y
+    movem.l d0/d6/a0/a2,-(a7)
+    move.l  a1,d0
+    lea     screen_data,a0
+    sub.l   a0,d0
+    sub.l   #SCREEN_PLANE_SIZE,d0
+    ; now D0 is the offset of any plane
+    lea     grid_backup_plane,a0
+    add.l   d0,a0       ; offset of data to copy
+    lea     paint_backup_plane,a2
+    add.l   d0,a2
+    subq.w  #1,d2
+    move.w  #NB_BYTES_PER_LINE,d6
+.loop
+    move.b  (a0),d0
+    move.b  d0,(a1)
+    move.b  d0,(a2)
+    add.w   d6,a0
+    add.w   d6,a1
+    add.w   d6,a2
+    dbf     d2,.loop
+    movem.l (a7)+,d0/d6/a0/a2
+    rts
+    
     
 ; < A1 address
-clear_dot 
-    clr.b  (a1)
-    clr.b  (NB_BYTES_PER_LINE,a1)
-    clr.b  (NB_BYTES_PER_LINE*2,a1)
-    clr.b  (NB_BYTES_PER_LINE*3,a1)
-    clr.b  (NB_BYTES_PER_LINE*4,a1)
-    clr.b  (NB_BYTES_PER_LINE*5,a1)
+clear_dot
+    REPT    6
+    clr.b  (NB_BYTES_PER_LINE*REPTN,a1)
+    ENDR
     
     rts
 
@@ -3173,7 +3254,7 @@ vbl_counter:
 
 
 SONG_1_LENGTH = ORIGINAL_TICKS_PER_SEC*17+ORIGINAL_TICKS_PER_SEC/2-2
-SONG_2_LENGTH = ORIGINAL_TICKS_PER_SEC*15+ORIGINAL_TICKS_PER_SEC/2-8
+SONG_2_LENGTH = ORIGINAL_TICKS_PER_SEC*14+10
 BONUS_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*8
 POWER_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*4+ORIGINAL_TICKS_PER_SEC/2-6
 
@@ -3367,6 +3448,7 @@ update_all
 .next_level
      move.w  #STATE_NEXT_LEVEL,current_state
      clr.b  next_level_is_bonus_level
+     clr.b  bonus_sprites
      rts
      
 .game_over
@@ -3417,12 +3499,15 @@ update_all
 
 .dec
     bsr update_player
+    
+    IFND    NO_ENEMIES
     bsr update_enemies
     
     tst.w   player_killed_timer
     bpl.b   .skip_a_lot     ; player killed, no music management, no collisions
     
     bsr check_collisions
+    ENDC
     
     move.w   power_state_counter(pc),d0
     bne.b   .power_music
@@ -4147,6 +4232,12 @@ move_killed
 .keep_going
     rts
 
+    
+state_transition_table
+    REPT    16
+    dc.l    f_unknown_transition
+    ENDR
+    
 ; close to vertical lines: fall, else hang
 hangfall_table:
     REPT    5
@@ -4530,13 +4621,12 @@ update_player
 
     ; check if there are dots to eat
     move.w  d2,d0
-    move.w  d2,d6   ; save it
     move.w  d3,d1
     
     tst.b   rustler_level
     bne.b   .rustler
     bsr get_tile_type
-    cmp.b   #D,(a0)
+    cmp.b   #U,(a0)
     bne.b   .z3
     ; eat dot
     move.b   #F,(a0)
@@ -4544,12 +4634,9 @@ update_player
     move.w  d2,d0
     move.w  d3,d1
 
-    bsr  get_dot_rectangles
     ; set registers d4-d6 with pointers on rectangles
-    move.l  d1,d5
-    exg.l   d2,d6
-    move.l  d0,d4
-    beq.b   .z
+    bsr  get_dot_rectangles
+
     ; clear dot
     lea    eat_sound,a0
     bsr     play_fx
@@ -4590,13 +4677,198 @@ update_player
 .z3
     rts
     
+    ; this is the tough part :)
+    ; paint management
 .rustler
-    ; TODO handle paint
 
-.no_move
+    ; handle paint
+    clr.b   a_rect_was_filled
+    
+    ; update the current_rectangles in D4-D6 and also in current
+    lea current_rectangles(pc),a1
+    bsr .getrects
+    
+    ; restore x,y to get tile type
+    move.w  d2,d0
+    move.w  d3,d1
+    
+    ; get current tile type
+    bsr get_tile_type
+    clr.w   d0
+
+    
+    ; a0 points on tile type
+    ; compose transition id by combining previous & current tile type
+    move.b  previous_tile_type(pc),d0
+    lsl.w   #2,d0
+    move.b  (a0),d1     ; current tile type
+
+    or.b  d1,d0
+    move.b  d1,previous_tile_type
+    
+    ; transitions
+    add.w   d0,d0
+    add.w   d0,d0
+    lea     state_transition_table(pc),a1
+    move.l  (a1,d0.w),a1
+    jsr     (a1)
+    
+    ; (state 1) staying in a painted zone
+    ; update the intersecting rectangles vs current
+   ;;; bsr update_common_rectangles
+    
+    bra.b   .rustler_out
+    
+.not_painted
+    move.w  #$F0,$DFF180
+    
+    ; player is NOT in a painted zone, check if entering one
+    cmp.b   #F,(a0)
+    bne.b   .rustler_out    ; was not in a painted zone, and not entering any: do nothing
+
+    ; (state 2) rustler passes from non painted to painted
+    ; compute rectangles as original rectangles
+    
+    lea  original_rectangles(pc),a1
+    bsr .getrects
+    ; copy the rectangles as intersection init values
+    bsr copy_original_to_common_rectangles
+
+    ; updated when
+    
+    ; - rustler passes from painted to painted (already painted)
+    ; - rustler completes a rectangle
+
+    ; do nothing more
+    bra.b   .rustler_out
+.leaving_the_paint:
+    
+    ; just left a painted zone: check if the current rectangles still have
+    ; something in common with common rectangles
+    ; if not rollback the paints
+    
+    
+    bra.b   .rustler_out
+.not_entering_painted
+
+    
+   ; default: not painting unless rectangles match
+
+
+    ; restore x,y to get rectangles
+    move.w  d2,d0
+    move.w  d3,d1
+
+    bsr  get_dot_rectangles
+    ; set registers d4-d6 with pointers on rectangles
+    
+
+    ; now we have to check if any of those registers match the current_rectangles array
+    ; if no intersection, then don't paint
+    
+    bra.b   .zz3    
+.painted
+    ; ROLLBACK-TODO: store a0 for rollback with "D"
+    ; "eat" dot
+    move.b   #F,(a0)
+    
+    
+    bsr play_paint_sound
+    ; add 10 to the score
+    moveq.l #1,d0
+    bsr add_to_score
+
+    lea	screen_data+SCREEN_PLANE_SIZE,a1
+    move.w  d2,d0
+    move.w  d3,d1
+    addq.w  #8,d0
+    addq.w  #1,d1
+    cmp.w   #UP,direction(a4)
+    beq.b   .radd8
+    cmp.w   #DOWN,direction(a4)
+    beq.b   .radd8
+    ; horizontal
+    addq.w  #5,d1
+    move.w  #2,d2
+    bra.b   .noradd
+.radd8
+    ; vertical
+    addq.l  #1,d1
+    move.w  #8,d2
+.noradd
+
+    ADD_XY_TO_A1    a0
+    
+    ; ROLLBACK-TODO: store a1 for grid un-paint rollback
+    bsr paint_zone
+    move.l  d4,a0
+    bsr     tile_painted
+.zz
+    tst.l   d5
+    beq.b   .zz2
+    move.l  d5,a0
+    bsr     tile_painted
+.zz2
+    tst.l   d6
+    beq.b   .zz3
+    move.l  d6,a0
+    bsr     tile_painted
+.zz3
+    tst.b   a_rect_was_filled
+    beq.b   .no_fill_sound
+    ; painted: store rectangles as new "original" rectangles
+    lea  original_rectangles(pc),a1
+    move.l  d4,(a1)+
+    move.l  d5,(a1)+
+    move.l  d6,(a1)
+    ; ROLLBACK-TODO: nullify rollback lists, nothing to rollback
+    bsr     commit_paint
+    bsr     stop_paint_sound
+    lea     filled_sound,a0
+    bsr     play_fx  
+.no_fill_sound
+.rustler_out
     rts
 
 
+.no_move
+    tst.b   rustler_level
+    bne.b   stop_paint_sound
+    
+    rts
+
+.getrects
+    move.w  d2,d0
+    move.w  d3,d1
+
+    bsr  get_dot_rectangles
+    ; set registers d4-d6 with pointers on rectangles
+    
+    ; store rectangles for next time TODO optimize with a movem
+    move.l  d4,(a1)+
+    move.l  d5,(a1)+
+    move.l  d6,(a1)
+    rts
+    
+; < D0: rectangle
+; > D0: not 0 if if in list, 0 otherwise (and also 0 if D0=0)
+; trashes: A1
+.is_in_rectangle_list
+    tst.l   d0
+    beq.b   .iirl_out
+    lea current_rectangles(pc),a1
+    cmp.l   (a1)+,d0
+    beq.b   .iirl_found
+    cmp.l   (a1)+,d0
+    beq.b   .iirl_found
+    cmp.l   (a1),d0
+    beq.b   .iirl_found
+    clr.b   d0
+.iirl_out
+    rts
+.iirl_found
+    st  d0
+    rts
     
 .move_attempt
     ; cache xy in regs / save them
@@ -4775,6 +5047,47 @@ DRAW_RECT_LINE_OR:MACRO
     or.b  #$FF,(\2+4,\1)
     ENDM
 
+
+
+copy_original_to_common_rectangles
+    movem.l a0-a1,-(a7)
+    lea     original_rectangles(pc),a0
+    lea     intersection_rectangles(pc),a1
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+    movem.l (a7)+,a0-a1
+    rts
+    
+play_paint_sound
+    tst.b   was_playing_paint_sound
+    bne.b   .already_painting
+    move.l  a0,-(a7)
+    lea paint_sound,a0
+    bsr play_loop_fx
+    move.l  (a7)+,a0
+    st.b    was_playing_paint_sound
+.already_painting
+    rts
+    
+   
+stop_paint_sound:
+    movem.l d0/a6,-(a7)
+    lea _custom,a6
+    moveq.l #3,d0
+    bsr     _mt_stopfx      ; stop paint loop
+    clr.b   was_playing_paint_sound
+    movem.l (a7)+,d0/a6
+    rts
+
+; what: zeroes all rollback lists
+commit_paint
+    move.l  #rollback_paint_zone_buffer,rollback_paint_zone_pointer
+    move.l  #rollback_rectangle_buffer,rollback_rectangle_pointer
+    move.l  #rollback_dot_table_buffer,rollback_dot_table_pointer
+    rts
+    
 enemies_jump
     ; cycle jump frames for each jump
     move.w  jump_frame(pc),d7
@@ -4812,6 +5125,46 @@ count_dot
     beq.b   .no_dots
     subq    #1,d0
     bne.b   .still_dots
+    bsr     fill_rectangle
+    subq.b  #1,nb_rectangles
+    beq.b   level_completed
+    clr     d0
+.still_dots
+    move.w  d0,cdots(a0)
+.no_dots
+    rts
+
+; what: count dots and draws the rectangle if all surface is painted
+; (dirty: draws during compute phase)
+; < A0: pointer on rectangle
+; destroys: D0
+
+tile_painted
+    move.w  cdots(a0),d0
+    beq.b   .no_dots
+    subq    #1,d0
+    bne.b   .still_dots
+    
+    clr.w   cdots(a0)
+    ; time to fill the rectangle
+    clr.b   was_playing_paint_sound
+    st.b    a_rect_was_filled
+
+    bsr     fill_rectangle
+    subq.b  #1,nb_rectangles
+    beq.b   level_completed
+
+    moveq.l   #0,d0
+    move.w  points(a0),d0
+    bra add_to_score        ; even levels: bonus awarded on rectfill
+.still_dots
+    move.w  d0,cdots(a0)
+    ; ROLLBACK-TODO store A0 in list for rollback
+.no_dots
+    rts
+
+
+fill_rectangle: 
     ; fill rectangle with color (plane 1)
     movem.l d1-d2/a0-a3,-(a7)
     tst.w   specrect(a0)
@@ -4847,19 +5200,7 @@ count_dot
     dbf d2,.filly
 
     movem.l (a7)+,d1-d2/a0-a3
-
-    subq.b  #1,nb_rectangles
-    beq.b   level_completed
     
-    moveq.l   #0,d0
-    move.w  points(a0),d0
-    beq.b   .still_dots
-    bsr add_to_score        ; even levels: bonus awarded on rectfill
-
-    clr d0
-.still_dots
-    move.w  d0,cdots(a0)
-.no_dots
     rts
     
     IFD    RECORD_INPUT_TABLE_SIZE
@@ -5132,8 +5473,8 @@ ye  set ys+16       ; size = 16
 ; args:
 ; < d0 : x (screen coords)
 ; < d1 : y
-; > d0,d1,d2: pointers on linked rectangles (either can be NULL)
-; trashes: a0
+; > d4,d5,d6: pointers on linked rectangles (either can be NULL)
+; trashes: none
 
 get_dot_rectangles:
     cmp.w   #Y_MAX+1,d1
@@ -5145,6 +5486,7 @@ get_dot_rectangles:
     add.w   #4,d1       ; center
     
     lsr.w   #3,d1       ; 8 divide : tile
+    move.l  a0,-(a7)
     lea     mul26_table(pc),a0
     add.w   d1,d1
     move.w  (a0,d1.w),d1    ; times 26
@@ -5156,10 +5498,11 @@ get_dot_rectangles:
     add.w   d0,a0
     add.w   d0,a0
     
-    move.l  (a0)+,D0    ; retrieve value of first pointer
-    move.l  (a0)+,D1    ; retrieve value of second pointer
-    move.l  (a0),D2    ; retrieve value of third pointer
-
+    move.l  (a0)+,D4    ; retrieve value of first pointer
+    move.l  (a0)+,D5    ; retrieve value of second pointer
+    move.l  (a0),D6    ; retrieve value of third pointer
+    move.l  (a7)+,a0
+    
     rts
 .out_of_bounds
     moveq.l   #0,d0
@@ -5954,8 +6297,6 @@ enemy_kill_timer
     dc.w    0
 player_killed_timer:
     dc.w    -1
-ghost_eaten_timer:
-    dc.w    -1
 bonus_score_timer:
     dc.w    0
 fright_timer:
@@ -5976,7 +6317,13 @@ bonus_level_lane_select_subcounter:
 bonus_text_screen_countdown
     dc.w    0
 bonus_music_replay_timer
-    dc.w    0
+
+current_rectangles
+    dc.l    0,0,0,0
+original_rectangles
+    dc.l    0,0,0,0
+intersection_rectangles
+    dc.l    0,0,0,0
 bonus_vertical_table
     dc.l    0
 bottom_reached
@@ -6014,7 +6361,15 @@ nb_lives:
     dc.b    0
 rustler_level:
     dc.b    0
-new_life_restart
+
+previous_tile_type:
+    dc.b    0
+
+was_playing_paint_sound:
+    dc.b    0
+new_life_restart:
+    dc.b    0
+a_rect_was_filled
     dc.b    0
 bonus_sprites:
     dc.b    0
@@ -6344,6 +6699,8 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY credit,1,SOUNDFREQ
     SOUND_ENTRY eat,3,SOUNDFREQ
     SOUND_ENTRY ping,3,SOUNDFREQ
+    SOUND_ENTRY paint,3,SOUNDFREQ
+    SOUND_ENTRY filled,0,SOUNDFREQ
     SOUND_ENTRY jump,1,SOUNDFREQ
 
 jump_height_table
@@ -6444,8 +6801,13 @@ enemies:
     ds.b    Enemy_SIZEOF*7
     even
 
+rollback_paint_zone_pointer:
+    dc.l    0
+rollback_rectangle_pointer:
+    dc.l    0
+rollback_dot_table_pointer:
+    dc.l    0
     
-
 keyboard_table:
     ds.b    $100,0
     
@@ -6476,6 +6838,12 @@ paint_backup_plane
 maze_wall_table_copy
     ds.b    NB_TILE_LINES*NB_TILES_PER_LINE
     
+rollback_paint_zone_buffer:
+    ds.l    NB_ROLLBACK_SLOTS
+rollback_rectangle_buffer:
+    ds.l    NB_ROLLBACK_SLOTS
+rollback_dot_table_buffer:
+    ds.l    NB_ROLLBACK_SLOTS
     
     even
     
@@ -6865,6 +7233,14 @@ eat_raw
     incbin  "eat.raw"
     even
 eat_raw_end
+filled_raw
+    incbin  "filled.raw"
+    even
+filled_raw_end
+paint_raw
+    incbin  "paint.raw"
+    even
+paint_raw_end
 jump_raw
     incbin  "jump.raw"
     even

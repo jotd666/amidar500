@@ -35,15 +35,14 @@ ISSUES:
 - level 2: fall frames don't match (match level 1)
 - level 1/2: normal music loop is wrong
 - collision: sometimes player goes through enemy
-- level 3: pigs instead of guards
-- intro: wrong start move
+- intro: wrong start move, maze check rework probably caused that
 - music loops wrong ... even in bonus mode sometimes
+- level 3 fill color should not be blue
 
 TODO:
 
 - enemy start positions: level 2: in diagonal, level 3: aligned
 - gameover with score: go to score table directly with score flashing
-- number of enemies increasing
 - level 2: paint!!!
 - thief attack pauses, then more or less random, then follow
   level 1: thief almost 8 loops: attacks
