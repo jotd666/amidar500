@@ -693,21 +693,99 @@ init_state_transition_table
 
 
 ; all the routines below are called with
-; A0: pointer on current tile (to change it)
+; < A0: pointer on current tile (to change it if needed)
+; < D0-D1: x,y
+; trash: whatever register they need
 
 f_temp_to_unpainted
     ; keeps painting
+    move.l  d0,-(a7)
+    move.l  d1,-(a7)
+    bsr dot_painted
+    move.l  (a7)+,d1
+    move.l  (a7)+,d0
+    ; update compatible rectangles (intersection)
+    ; rebuild the intersection in a temp list
+    bsr get_dot_rectangles
+
+    sub.l  #12,a7
+    move.l  a7,a1
+    lea compatible_rectangles(pc),a0
+    move.l  d4,d0
+    beq.b   .no_d4
+    bsr     .lookup_rect
+    bne.b   .no_d4
+    move.l  d4,(a1)+        ; found: store
+.no_d4    
+    move.l  d5,d0
+    beq.b   .no_d5
+    bsr     .lookup_rect
+    bne.b   .no_d5
+    move.l  d5,(a1)+        ; found: store
+.no_d5    
+    move.l  d6,d0
+    beq.b   .no_d6
+    bsr     .lookup_rect
+    bne.b   .no_d6
+    move.l  d6,(a1)        ; found: store
+.no_d6    
+    cmp.l  a7,a1
+    ; nothing found: rollback todo
+    beq.b   .rollback    
+    
+    ; found: update compatible rectangles (and restore a7)
+    move.l  (a7)+,(a0)+
+    move.l  (a7)+,(a0)+
+    move.l  (a7)+,(a0)
+    
     rts
-f_temp_to_painted
-    ; cancels temp paint immediately
-    rts
-f_unpainted_to_painted
-    ; re-seeds compatible rectangles 
-    rts
-f_painted_to_unpainted
-    ; starts painting
+.rollback
+    add.l  #12,a7
+    move.w  #$F0,$DFF180
+    move.b  #U,previous_tile_type
     rts
     
+; < a0: rectangles pointer
+; > CCR Z: 1 if found, 0 else
+.lookup_rect
+    cmp.l   (a0),d0
+    beq.b   .found
+    cmp.l   (4,a0),d0
+    beq.b   .found
+    cmp.l   (8,a0),d0
+.found    
+    rts
+    
+     
+f_temp_to_painted
+    bsr rollback_paint
+    ; cancels temp paint immediately
+    move.w  #$FFF,$DFF180
+    rts
+f_unpainted_to_painted
+    ; nothing to do
+    rts
+    
+f_painted_to_unpainted
+    ; starts painting TODO store address to undo
+    move.l  d0,-(a7)
+    move.l  d1,-(a7)
+    bsr dot_painted
+    move.l  (a7)+,d1
+    move.l  (a7)+,d0
+    ; first compute the current compatible rectangles    
+    bsr get_dot_rectangles
+    lea compatible_rectangles(pc),a1
+    
+    ; we have them in D4-D6, now store them
+    move.l  d4,(a1)+
+    move.l  d5,(a1)+
+    move.l  d6,(a1)
+    ; todo: paint
+    ; todo: count dots on rectangles
+    rts
+    
+        
 f_remains_temp
 f_remains_unpainted
 f_remains_painted
@@ -727,11 +805,72 @@ f_painted_to_temp
     
 f_unknown_transition
     blitz
-    nop
+    illegal
     rts
 
 
 
+dot_painted
+
+    ; todo store a0 for undo/rollback
+    move.b  #T,d0
+    move.b  d0,(a0)
+    move.b  d0,previous_tile_type
+    
+    bsr play_paint_sound
+    ; add 10 to the score
+    moveq.l #1,d0
+    bsr add_to_score
+
+    lea	screen_data+SCREEN_PLANE_SIZE,a1
+    move.w  d2,d0
+    move.w  d3,d1
+    addq.w  #8,d0
+    addq.w  #1,d1
+    cmp.w   #UP,direction(a4)
+    beq.b   .radd8
+    cmp.w   #DOWN,direction(a4)
+    beq.b   .radd8
+    ; horizontal
+    addq.w  #5,d1
+    clr.w   d3  ; horizontal
+    bra.b   .noradd
+.radd8
+    ; vertical
+    addq.l  #1,d1
+    moveq   #1,d3   ; vertical
+.noradd
+
+    ADD_XY_TO_A1    a0
+    
+    
+    bsr paint_zone
+    
+    move.l  d4,a0
+    bsr     tile_painted
+.zz
+    tst.l   d5
+    beq.b   .zz2
+    move.l  d5,a0
+    bsr     tile_painted
+.zz2
+    tst.l   d6
+    beq.b   .zz3
+    move.l  d6,a0
+    bsr     tile_painted
+.zz3
+    tst.b   a_rect_was_filled
+    beq.b   .no_fill_sound
+
+    ; nullify rollback lists, change temp paint to full paint
+    bsr     commit_paint
+    bsr     stop_paint_sound
+    lea     filled_sound,a0
+    bsr     play_fx
+.no_fill_sound
+    rts
+    
+    
 clear_playfield_planes
     lea screen_data,a1
     bsr clear_playfield_plane
@@ -1125,16 +1264,8 @@ init_player:
 .level2
     move.l  #'RUST',character_id(a0)
     move.b  #F,previous_tile_type       ; comes from "fully painted"
-    ; set bottom rectangles (center and 1 left 1 right) as original rectangles
-    ; allowing those 3 and only those 3 to be painted at start
-    lea     original_rectangles(pc),a1
-    move.l  #rect_2_13,(a1)+
-    move.l  #rect_2_20,(a1)+
-    move.l  #rect_2_28,(a1)+
-    clr.l   (a1)+
-    bsr     copy_original_to_common_rectangles
+    bsr     reset_rollback_pointers
 .cont
-    ; copy original rectangles to intersection rectangles
     
     move.w  #NB_TILES_PER_LINE*4,xpos(a0)
 	move.w	#Y_MAX,ypos(a0)
@@ -2862,13 +2993,57 @@ draw_dot:
     rts
 
 ; < A1 address
-; < D2 height
+; < D3 0 horizonal, 1 vertical
 paint_zone:
     ; just copy the data of the backup plane
     ; for this we have to compute what is A1 address offset
     ; compared to second plane
     ; probably faster than recomputing that from X,Y
     movem.l d0/d6/a0/a2,-(a7)
+    move.l  rollback_paint_zone_pointer(pc),a0
+    move.l  a1,(a0)+
+    move.w  d3,(a0)+
+    move.l  a0,rollback_paint_zone_pointer
+    bsr     prepare_paint_zone
+.loop
+    move.b  (a0),d0
+    tst d3
+    beq.b   .horiz
+    and.b   #$f0,d0 ; remove horizontal bar
+.horiz
+    or.b  d0,(a1)
+    or.b  d0,(a2)
+    add.w   d6,a0
+    add.w   d6,a1
+    add.w   d6,a2
+    dbf     d2,.loop
+    movem.l (a7)+,d0/d6/a0/a2
+    rts
+    
+unpaint_zone:
+    ; just copy the data of the backup plane
+    ; for this we have to compute what is A1 address offset
+    ; compared to second plane
+    ; probably faster than recomputing that from X,Y
+    movem.l d0/d6/a0/a2,-(a7)
+    bsr prepare_paint_zone
+.loop
+    move.b  (a0),d0
+    tst d3
+    beq.b   .horiz
+    and.b   #$f0,d0 ; remove horizontal bar
+.horiz
+    eor.b  d0,(a1)
+    eor.b  d0,(a2)
+    add.w   d6,a0
+    add.w   d6,a1
+    add.w   d6,a2
+    dbf     d2,.loop
+    movem.l (a7)+,d0/d6/a0/a2
+    rts
+    
+; unpaint/paint register shared computations
+prepare_paint_zone
     move.l  a1,d0
     lea     screen_data,a0
     sub.l   a0,d0
@@ -2878,19 +3053,15 @@ paint_zone:
     add.l   d0,a0       ; offset of data to copy
     lea     paint_backup_plane,a2
     add.l   d0,a2
-    subq.w  #1,d2
+    tst d3
+    beq.b   .horiz
+    moveq.w #7,d2
+    bra.b   .cont
+.horiz
+    moveq.w #1,d2
+.cont
     move.w  #NB_BYTES_PER_LINE,d6
-.loop
-    move.b  (a0),d0
-    move.b  d0,(a1)
-    move.b  d0,(a2)
-    add.w   d6,a0
-    add.w   d6,a1
-    add.w   d6,a2
-    dbf     d2,.loop
-    movem.l (a7)+,d0/d6/a0/a2
     rts
-    
     
 ; < A1 address
 clear_dot
@@ -4680,17 +4851,9 @@ update_player
     ; this is the tough part :)
     ; paint management
 .rustler
-
+    ; enters here with d0-D1 and D2-D3 as x,y
     ; handle paint
     clr.b   a_rect_was_filled
-    
-    ; update the current_rectangles in D4-D6 and also in current
-    lea current_rectangles(pc),a1
-    bsr .getrects
-    
-    ; restore x,y to get tile type
-    move.w  d2,d0
-    move.w  d3,d1
     
     ; get current tile type
     bsr get_tile_type
@@ -4706,129 +4869,21 @@ update_player
     or.b  d1,d0
     move.b  d1,previous_tile_type
     
+    cmp.w   #16,d0
+    bcs.b   .limitsok
+    blitz
+    illegal
+.limitsok
     ; transitions
     add.w   d0,d0
     add.w   d0,d0
     lea     state_transition_table(pc),a1
     move.l  (a1,d0.w),a1
+    move.w  d2,d0
+    move.w  d3,d1
     jsr     (a1)
     
-    ; (state 1) staying in a painted zone
-    ; update the intersecting rectangles vs current
-   ;;; bsr update_common_rectangles
-    
-    bra.b   .rustler_out
-    
-.not_painted
-    move.w  #$F0,$DFF180
-    
-    ; player is NOT in a painted zone, check if entering one
-    cmp.b   #F,(a0)
-    bne.b   .rustler_out    ; was not in a painted zone, and not entering any: do nothing
-
-    ; (state 2) rustler passes from non painted to painted
-    ; compute rectangles as original rectangles
-    
-    lea  original_rectangles(pc),a1
-    bsr .getrects
-    ; copy the rectangles as intersection init values
-    bsr copy_original_to_common_rectangles
-
-    ; updated when
-    
-    ; - rustler passes from painted to painted (already painted)
-    ; - rustler completes a rectangle
-
-    ; do nothing more
-    bra.b   .rustler_out
-.leaving_the_paint:
-    
-    ; just left a painted zone: check if the current rectangles still have
-    ; something in common with common rectangles
-    ; if not rollback the paints
-    
-    
-    bra.b   .rustler_out
-.not_entering_painted
-
-    
-   ; default: not painting unless rectangles match
-
-
-    ; restore x,y to get rectangles
-    move.w  d2,d0
-    move.w  d3,d1
-
-    bsr  get_dot_rectangles
-    ; set registers d4-d6 with pointers on rectangles
-    
-
-    ; now we have to check if any of those registers match the current_rectangles array
-    ; if no intersection, then don't paint
-    
-    bra.b   .zz3    
-.painted
-    ; ROLLBACK-TODO: store a0 for rollback with "D"
-    ; "eat" dot
-    move.b   #F,(a0)
-    
-    
-    bsr play_paint_sound
-    ; add 10 to the score
-    moveq.l #1,d0
-    bsr add_to_score
-
-    lea	screen_data+SCREEN_PLANE_SIZE,a1
-    move.w  d2,d0
-    move.w  d3,d1
-    addq.w  #8,d0
-    addq.w  #1,d1
-    cmp.w   #UP,direction(a4)
-    beq.b   .radd8
-    cmp.w   #DOWN,direction(a4)
-    beq.b   .radd8
-    ; horizontal
-    addq.w  #5,d1
-    move.w  #2,d2
-    bra.b   .noradd
-.radd8
-    ; vertical
-    addq.l  #1,d1
-    move.w  #8,d2
-.noradd
-
-    ADD_XY_TO_A1    a0
-    
-    ; ROLLBACK-TODO: store a1 for grid un-paint rollback
-    bsr paint_zone
-    move.l  d4,a0
-    bsr     tile_painted
-.zz
-    tst.l   d5
-    beq.b   .zz2
-    move.l  d5,a0
-    bsr     tile_painted
-.zz2
-    tst.l   d6
-    beq.b   .zz3
-    move.l  d6,a0
-    bsr     tile_painted
-.zz3
-    tst.b   a_rect_was_filled
-    beq.b   .no_fill_sound
-    ; painted: store rectangles as new "original" rectangles
-    lea  original_rectangles(pc),a1
-    move.l  d4,(a1)+
-    move.l  d5,(a1)+
-    move.l  d6,(a1)
-    ; ROLLBACK-TODO: nullify rollback lists, nothing to rollback
-    bsr     commit_paint
-    bsr     stop_paint_sound
-    lea     filled_sound,a0
-    bsr     play_fx  
-.no_fill_sound
-.rustler_out
-    rts
+    rts    
 
 
 .no_move
@@ -4837,38 +4892,6 @@ update_player
     
     rts
 
-.getrects
-    move.w  d2,d0
-    move.w  d3,d1
-
-    bsr  get_dot_rectangles
-    ; set registers d4-d6 with pointers on rectangles
-    
-    ; store rectangles for next time TODO optimize with a movem
-    move.l  d4,(a1)+
-    move.l  d5,(a1)+
-    move.l  d6,(a1)
-    rts
-    
-; < D0: rectangle
-; > D0: not 0 if if in list, 0 otherwise (and also 0 if D0=0)
-; trashes: A1
-.is_in_rectangle_list
-    tst.l   d0
-    beq.b   .iirl_out
-    lea current_rectangles(pc),a1
-    cmp.l   (a1)+,d0
-    beq.b   .iirl_found
-    cmp.l   (a1)+,d0
-    beq.b   .iirl_found
-    cmp.l   (a1),d0
-    beq.b   .iirl_found
-    clr.b   d0
-.iirl_out
-    rts
-.iirl_found
-    st  d0
-    rts
     
 .move_attempt
     ; cache xy in regs / save them
@@ -5049,17 +5072,6 @@ DRAW_RECT_LINE_OR:MACRO
 
 
 
-copy_original_to_common_rectangles
-    movem.l a0-a1,-(a7)
-    lea     original_rectangles(pc),a0
-    lea     intersection_rectangles(pc),a1
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
-    movem.l (a7)+,a0-a1
-    rts
-    
 play_paint_sound
     tst.b   was_playing_paint_sound
     bne.b   .already_painting
@@ -5083,6 +5095,56 @@ stop_paint_sound:
 
 ; what: zeroes all rollback lists
 commit_paint
+    ; convert temp paint to full paint
+    move.b  #F,previous_tile_type
+    lea     rollback_dot_table_buffer,a0
+    move.b  #F,d0
+    move.l  rollback_dot_table_pointer(pc),d1
+.temp2full
+    move.b  d0,(a0)+
+    cmp.l   a0,d1
+    bne.b   .temp2full
+    ; reset pointers to start of lists
+    bra reset_rollback_pointers
+    
+rollback_paint:
+    ; convert temp paint to no paint
+    move.b  #U,previous_tile_type
+    lea     rollback_dot_table_buffer,a0
+    move.b  #U,d0
+    move.l  rollback_dot_table_pointer(pc),d1
+.temp2full
+    cmp.l   a0,d1
+    beq.b   .t2f_out
+    move.b  d0,(a0)+
+    bra.b   .temp2full
+.t2f_out
+    ; re-add one dot to each rectangle pointer stored
+    lea     rollback_rectangle_buffer,a0
+    move.l  rollback_rectangle_pointer(pc),d1
+.readd_dot
+    cmp.l   a0,d1
+    beq.b   .rad_out
+    move.l  (a0)+,a1
+    addq.w  #1,cdots(a1)  
+    bra.b   .readd_dot
+.rad_out    
+    ; unpaint zone
+    lea     rollback_paint_zone_buffer,a0
+    move.l  rollback_paint_zone_pointer(pc),d1
+.unpaint:
+    cmp.l   a0,d1
+    beq.b   .up_out
+    move.l  (a0)+,a1
+    move.w  (a0)+,d3
+    bsr     unpaint_zone
+    bra.b   .unpaint
+.up_out
+    
+    ; reset pointers to start of lists
+    bra     reset_rollback_pointers
+    
+reset_rollback_pointers:
     move.l  #rollback_paint_zone_buffer,rollback_paint_zone_pointer
     move.l  #rollback_rectangle_buffer,rollback_rectangle_pointer
     move.l  #rollback_dot_table_buffer,rollback_dot_table_pointer
@@ -5159,11 +5221,18 @@ tile_painted
     bra add_to_score        ; even levels: bonus awarded on rectfill
 .still_dots
     move.w  d0,cdots(a0)
-    ; ROLLBACK-TODO store A0 in list for rollback
+    ; store A0 in list for rollback
+    bsr store_rectangle_rollback_address
 .no_dots
     rts
 
-
+; < A0: rectangle address to store for rollback
+store_rectangle_rollback_address
+    move.l  rollback_rectangle_pointer(pc),a1
+    move.l  a0,(a1)+
+    move.l  a1,rollback_rectangle_pointer
+    rts
+    
 fill_rectangle: 
     ; fill rectangle with color (plane 1)
     movem.l d1-d2/a0-a3,-(a7)
@@ -6318,11 +6387,7 @@ bonus_text_screen_countdown
     dc.w    0
 bonus_music_replay_timer
 
-current_rectangles
-    dc.l    0,0,0,0
-original_rectangles
-    dc.l    0,0,0,0
-intersection_rectangles
+compatible_rectangles
     dc.l    0,0,0,0
 bonus_vertical_table
     dc.l    0
@@ -6839,7 +6904,7 @@ maze_wall_table_copy
     ds.b    NB_TILE_LINES*NB_TILES_PER_LINE
     
 rollback_paint_zone_buffer:
-    ds.l    NB_ROLLBACK_SLOTS
+    ds.l    NB_ROLLBACK_SLOTS*2
 rollback_rectangle_buffer:
     ds.l    NB_ROLLBACK_SLOTS
 rollback_dot_table_buffer:
