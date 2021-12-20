@@ -741,8 +741,7 @@ f_temp_to_unpainted
     rts
 .rollback
     add.l  #12,a7
-    move.w  #$F0,$DFF180
-    move.b  #U,previous_tile_type
+    bsr rollback_paint
     rts
     
 ; < a0: rectangles pointer
@@ -758,16 +757,15 @@ f_temp_to_unpainted
     
      
 f_temp_to_painted
-    bsr rollback_paint
     ; cancels temp paint immediately
-    move.w  #$FFF,$DFF180
+    bsr rollback_paint
     rts
 f_unpainted_to_painted
     ; nothing to do
     rts
     
 f_painted_to_unpainted
-    ; starts painting TODO store address to undo
+    ; starts painting
     move.l  d0,-(a7)
     move.l  d1,-(a7)
     bsr dot_painted
@@ -781,8 +779,6 @@ f_painted_to_unpainted
     move.l  d4,(a1)+
     move.l  d5,(a1)+
     move.l  d6,(a1)
-    ; todo: paint
-    ; todo: count dots on rectangles
     rts
     
         
@@ -812,16 +808,26 @@ f_unknown_transition
 
 dot_painted
 
-    ; todo store a0 for undo/rollback
+    ; store a0 for undo/rollback
+
+    move.l  rollback_dot_table_pointer(pc),a1
+    move.l  a0,(a1)+
+    move.l  a1,rollback_dot_table_pointer
+    
     move.b  #T,d0
     move.b  d0,(a0)
-    move.b  d0,previous_tile_type
+    move.b  d0,previous_tile_type   ;  update for next time
     
     bsr play_paint_sound
     ; add 10 to the score
     moveq.l #1,d0
     bsr add_to_score
 
+    move.w  d2,d0
+    move.w  d3,d1
+    ; load D4-D6 for later
+    bsr     get_dot_rectangles
+    
     lea	screen_data+SCREEN_PLANE_SIZE,a1
     move.w  d2,d0
     move.w  d3,d1
@@ -842,8 +848,7 @@ dot_painted
 .noradd
 
     ADD_XY_TO_A1    a0
-    
-    
+        
     bsr paint_zone
     
     move.l  d4,a0
@@ -1376,7 +1381,7 @@ draw_debug
     lea player(pc),a2
     move.w  #DEBUG_X,d0
     move.w  #DEBUG_Y,d1
-    lea	screen_data+SCREEN_PLANE_SIZE*3,a1 
+    lea	screen_data+SCREEN_PLANE_SIZE,a1 
     lea .px(pc),a0
     bsr write_string
     lsl.w   #3,d0
@@ -1412,7 +1417,7 @@ draw_debug
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
     move.l  d0,d3
-    lea rect_1_21(pc),a0
+    lea rect_2_20,a0
     move.w  cdots(a0),d2
     move.w  #3,d3
     bsr write_decimal_number
@@ -1433,7 +1438,7 @@ draw_debug
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
     clr.l   d2
-    move.l #dot_table,d2
+    move.l #rect_2_20,d2
     move.w  #8,d3
     bsr write_hexadecimal_number
 
@@ -1447,11 +1452,11 @@ draw_debug
 .dots
         dc.b    "DOTC1 ",0
 .bottom_rect_string
-        dc.b    "R1 21 ",0
+        dc.b    "R2 20 ",0
 .bonus
         dc.b    "BT ",0
 .dottable:
-        dc.b    "DTA !",0
+        dc.b    "RECTA ",0
         even
 
 draw_enemies:
@@ -4473,7 +4478,7 @@ move_crash
     rts
     
 move_fall
-    ; todo: fall and crater or keep falling and respawn on top if power state ends
+    ; fall and crater or keep falling and respawn on top if power state ends
     ; before enemy hits the ground
     ; use timer to animate   
 
@@ -5093,32 +5098,35 @@ stop_paint_sound:
     movem.l (a7)+,d0/a6
     rts
 
-; what: zeroes all rollback lists
-commit_paint
-    ; convert temp paint to full paint
-    move.b  #F,previous_tile_type
+set_stored_tiles:
+    move.b  d0,previous_tile_type
     lea     rollback_dot_table_buffer,a0
-    move.b  #F,d0
-    move.l  rollback_dot_table_pointer(pc),d1
-.temp2full
-    move.b  d0,(a0)+
-    cmp.l   a0,d1
-    bne.b   .temp2full
-    ; reset pointers to start of lists
-    bra reset_rollback_pointers
-    
-rollback_paint:
-    ; convert temp paint to no paint
-    move.b  #U,previous_tile_type
-    lea     rollback_dot_table_buffer,a0
-    move.b  #U,d0
     move.l  rollback_dot_table_pointer(pc),d1
 .temp2full
     cmp.l   a0,d1
     beq.b   .t2f_out
-    move.b  d0,(a0)+
+    move.l  (a0)+,a1
+    move.b  d0,(a1)
     bra.b   .temp2full
 .t2f_out
+    rts
+    
+; what: zeroes all rollback lists, converts
+; temporary paint to definitive paint
+commit_paint
+    ; convert temp paint to full paint
+    move.b  #F,d0
+    bsr     set_stored_tiles
+
+    ; reset pointers to start of lists
+    bra reset_rollback_pointers
+    
+rollback_paint:
+    bsr stop_paint_sound
+    ; convert temp paint to no paint
+    move.b  #U,d0
+    bsr     set_stored_tiles
+
     ; re-add one dot to each rectangle pointer stored
     lea     rollback_rectangle_buffer,a0
     move.l  rollback_rectangle_pointer(pc),d1
@@ -5142,7 +5150,7 @@ rollback_paint:
 .up_out
     
     ; reset pointers to start of lists
-    bra     reset_rollback_pointers
+    ;;bra     reset_rollback_pointers
     
 reset_rollback_pointers:
     move.l  #rollback_paint_zone_buffer,rollback_paint_zone_pointer
@@ -5338,7 +5346,7 @@ level_completed:
 ; the palette is organized so we only need to blit planes 0, 2 and 3 (not 1)
 ; plane 1 contains dots so it avoids to redraw it
 ; plane 0 contains the grid, that has been backed up
-; plane 2 or 3 contains filled up rectangles, needs backing up too TODO
+; plane 3 contains filled up rectangles, needs backing up too
 draw_player:
     move.l  previous_player_address(pc),d5
     bne.b   .not_first_draw
@@ -5422,9 +5430,7 @@ draw_player:
     ; nice as it works in parallel with the first plane blit started above
     tst.l   d5
     bmi.b   .no_erase2
-    
-    ; TODO restore plane 1
-    
+        
     ; restore plane 2
     lea   screen_data+SCREEN_PLANE_SIZE*2,a1
     lea rect_backup_plane,a4    

@@ -257,7 +257,7 @@ game_palette_level_1 = """
     dc.w    $0c0f       ; magenta1
     dc.w    $00f0   ; green1    (pos 8)
 
-    dc.w    $0f7f       ; magenta2
+    dc.w    $00f7f       ; magenta2
     dc.w    $0f91       ; brown
     dc.w    $0fff   ; white
     dc.w    $0f00       ; red   (pos 12)
