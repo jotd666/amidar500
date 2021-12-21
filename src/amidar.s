@@ -707,10 +707,12 @@ f_temp_to_unpainted
     ; update compatible rectangles (intersection)
     ; rebuild the intersection in a temp list
     bsr get_dot_rectangles
-
-    sub.l  #12,a7
+    clr.l   -(a7)
+    clr.l   -(a7)
+    clr.l   -(a7)
     move.l  a7,a1
     lea compatible_rectangles(pc),a0
+    
     move.l  d4,d0
     beq.b   .no_d4
     bsr     .lookup_rect
@@ -727,7 +729,9 @@ f_temp_to_unpainted
     beq.b   .no_d6
     bsr     .lookup_rect
     bne.b   .no_d6
-    move.l  d6,(a1)        ; found: store
+    move.l  d6,(a1)+        ; found: store
+    ; note that increasing a1 is required even for the last test
+    ; because if a1 == a7 then there's no intersection registered
 .no_d6    
     cmp.l  a7,a1
     ; nothing found: rollback todo
@@ -771,7 +775,7 @@ f_painted_to_unpainted
     bsr dot_painted
     move.l  (a7)+,d1
     move.l  (a7)+,d0
-    ; first compute the current compatible rectangles    
+    ; compute the current compatible rectangles    
     bsr get_dot_rectangles
     lea compatible_rectangles(pc),a1
     
