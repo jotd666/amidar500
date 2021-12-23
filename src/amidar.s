@@ -178,7 +178,7 @@ X_MAX = (NB_BYTES_PER_MAZE_LINE-1)*8
 STARS_OFFSET = NB_BYTES_PER_MAZE_LINE-4+(NB_BYTES_PER_LINE)*(MAZE_HEIGHT+18)
 
 ; maybe too many slots...
-NB_ROLLBACK_SLOTS = 30
+NB_ROLLBACK_SLOTS = 80
 ; messages from update routine to display routine
 MSG_NONE = 0
 MSG_SHOW = 1
@@ -1272,6 +1272,10 @@ init_enemies
   
     ; thief
     lea game_palette+56(pc),a3  ; 4 last colors
+    tst.b   rustler_level
+    beq.b   .no_rustler_2    
+    lea alt_sprite_palette+24(pc),a3  ; 4 last colors
+.no_rustler_2
     lea     enemies,a0
     move.l (a3)+,palette(a0)
     move.l (a3)+,palette+4(a0)
@@ -5735,6 +5739,8 @@ get_tile_type:
     add.w   d1,d1
     move.w  (a0,d1.w),d1    ; times 26
     move.l maze_wall_table(pc),a0
+    ;;move.l  a0,$100     ; TEMP
+    
     add.w   d1,a0
     lsr.w   #3,d0   ; 8 divide
     add.w   d0,a0
@@ -7019,7 +7025,7 @@ rollback_rectangle_buffer:
 rollback_dot_table_buffer:
     ds.l    NB_ROLLBACK_SLOTS
 pending_paint_rectangle_buffer:
-    ds.l    4
+    ds.l    6
     
     even
     

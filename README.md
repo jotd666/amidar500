@@ -31,7 +31,7 @@ CONTROLS:
 ISSUES:
 
 - turn correction not perfect, sometimes character blocks or goes the wrong way
-- level 2: thief palette is wrong (blue/white is reverted, fright mode is green)
+- level 2: thief palette is wrong (fright mode is green)
 - level 2: fall frames don't match (match level 1)
 - level 1/2: normal music loop is wrong
 - collision: sometimes player goes through enemy
@@ -40,15 +40,29 @@ ISSUES:
 - level 3: music doesn't start immediately
 - undo_paint: not perfect
 - sometimes rollbacks instead of commiting (semi-random), still unexpected transition states
+  => impossible to end the level
 
 TODO:
 
 - gameover with score: go to score table directly with score flashing
 - thief attack pauses, then more or less random, then follow
   level 1: thief almost 8 loops: attacks
-  level 2: thief almost 7 loops: attacks
-  so on...
-- enemy speed increasing
+  level 2: thief almost 7 loops: 80 seconds
+  level 3: 65 seconds
+        4: 55
+        5: 53
+        6: 25
+        7: 12
+        8: 10
+        9: 8
+        10: 5
+        11: 4
+        12: 3
+        13: 2
+        14: 0
+        
+- enemy speed increasing, level 1-2: 20/20 level 3-4: 20/19 levl 5-6: 20/18
+  level 8: 20/16 level 9-13: 20/15, at level 15 reaches 20/13 speed (max)
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
 - 
 - commit_paint: re-paint rectangle bounds too
