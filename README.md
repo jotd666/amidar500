@@ -30,27 +30,28 @@ CONTROLS:
 
 ISSUES:
 
-- turn correction not perfect, sometimes character blocks
+- turn correction not perfect, sometimes character blocks or goes the wrong way
 - level 2: thief palette is wrong (blue/white is reverted, fright mode is green)
 - level 2: fall frames don't match (match level 1)
 - level 1/2: normal music loop is wrong
 - collision: sometimes player goes through enemy
 - intro: wrong start move, maze check rework probably caused that
 - music loops wrong ... even in bonus mode sometimes
-- level 3 fill color should not be blue
+- level 3: music doesn't start immediately
+- undo_paint: not perfect
+- sometimes rollbacks instead of commiting (semi-random), still unexpected transition states
 
 TODO:
 
-- enemy start positions: level 2: in diagonal, level 3: aligned
 - gameover with score: go to score table directly with score flashing
-- level 2: paint!!!
 - thief attack pauses, then more or less random, then follow
   level 1: thief almost 8 loops: attacks
   level 2: thief almost 7 loops: attacks
   so on...
 - enemy speed increasing
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- rip thief attack sound
+- 
+- commit_paint: re-paint rectangle bounds too
 
 CREDITS:
 

@@ -284,6 +284,9 @@ Start:
     ;move.l  a0,a2
     ;lea	_tags(pc),a0
     ;jsr	resload_Control(a2)
+
+    bsr load_highscores
+    
     bra.b   .startup
 .standard
     ; open dos library, graphics library
@@ -296,9 +299,25 @@ Start:
     moveq.l #0,d0
     jsr _LVOOpenLibrary(a6)
     move.l  d0,_gfxbase
-    
-.startup
+
     bsr load_highscores
+
+    ; check if "floppy" file is here
+    
+    move.l  _dosbase(pc),a6
+    move.l   #floppy_file,d1
+    move.l  #MODE_OLDFILE,d2
+    jsr     _LVOOpen(a6)
+    move.l  d0,d1
+    beq.b   .startup
+    
+    ; "floppy" file found
+    jsr     _LVOClose(a6)
+    ; wait 2 seconds for floppy drive to switch off
+    move.l  #100,d1
+    jsr     _LVODelay(a6)
+.startup
+
     lea  _custom,a5
     move.b  #0,controller_joypad_1
     
@@ -698,12 +717,19 @@ init_state_transition_table
 ; trash: whatever register they need
 
 f_temp_to_unpainted
+    ; check pending rectangles
+    ; validate if some full paints are pending
+    move.l  pending_paint_rectangle_pointer(pc),a2
+    lea     pending_paint_rectangle_buffer,a1
+    cmp.l   a2,a1
+    beq.b   .nothing_to_validate
+
+    movem.w d0-d1,-(a7)
+    bsr commit_paint
+    movem.w (a7)+,d0-d1
+.nothing_to_validate    
     ; keeps painting
-    move.l  d0,-(a7)
-    move.l  d1,-(a7)
-    bsr dot_painted
-    move.l  (a7)+,d1
-    move.l  (a7)+,d0
+    bsr dot_painted_temp
     ; update compatible rectangles (intersection)
     ; rebuild the intersection in a temp list
     bsr get_dot_rectangles
@@ -734,7 +760,7 @@ f_temp_to_unpainted
     ; because if a1 == a7 then there's no intersection registered
 .no_d6    
     cmp.l  a7,a1
-    ; nothing found: rollback todo
+    ; nothing found: rollback
     beq.b   .rollback    
     
     ; found: update compatible rectangles (and restore a7)
@@ -759,10 +785,71 @@ f_temp_to_unpainted
 .found    
     rts
     
-     
+f_remains_temp
+    ; check if direction change
+    ; if no direction change, don't attempt to validate
+	; pending rectangles
+    move.w  player+direction(pc),d2
+    cmp.w   previous_direction(pc),d2
+	beq.b	.out
+	move.w	d2,previous_direction
+    ; do nothing unless some rects are pending
+    ; (means that player just turned back)
+    move.l  pending_paint_rectangle_pointer(pc),a2
+    lea     pending_paint_rectangle_buffer,a1
+    cmp.l   a2,a1
+    bne.b   .validate
+.out
+    rts
+.validate
+    bra commit_paint
+    
 f_temp_to_painted
+    bsr     stop_paint_sound
     ; cancels temp paint immediately
-    bsr rollback_paint
+    ; unless some full paints are pending
+    move.l  pending_paint_rectangle_pointer(pc),a2
+    lea     pending_paint_rectangle_buffer,a1
+    cmp.l   a2,a1
+    bne.b   .validated
+    ; nothing was validated during temp paint: rollback
+    bra rollback_paint
+.validated
+    bsr dot_painted_full
+.vloop
+    bsr commit_paint
+    rts
+    
+; < A1: rectangles to commit
+; < A2: max rect pointer to stop to
+commit_paint
+.vloop
+    ; fill rectangles
+    move.l  (a1)+,a0
+    moveq.l   #0,d0
+    move.w  points(a0),d0
+    bsr add_to_score        ; even levels: bonus awarded on rectfill    
+    
+    bsr     fill_rectangle
+    subq.b  #1,nb_rectangles
+    beq.b   level_completed ; bail out: level was completed
+    cmp.l   a1,a2
+    bne.b   .vloop
+    
+    ; convert temp paint to full paint
+    move.b  #F,d0
+    bsr     set_stored_tiles
+
+    ; reset pointers to start of lists
+    bsr reset_rollback_pointers
+
+    ; play fill sound once even if several rectangles
+    lea     filled_sound,a0
+    bsr     play_fx
+    
+    rts
+    
+    
     rts
 f_unpainted_to_painted
     ; nothing to do
@@ -770,11 +857,7 @@ f_unpainted_to_painted
     
 f_painted_to_unpainted
     ; starts painting
-    move.l  d0,-(a7)
-    move.l  d1,-(a7)
-    bsr dot_painted
-    move.l  (a7)+,d1
-    move.l  (a7)+,d0
+    bsr dot_painted_temp
     ; compute the current compatible rectangles    
     bsr get_dot_rectangles
     lea compatible_rectangles(pc),a1
@@ -786,7 +869,7 @@ f_painted_to_unpainted
     rts
     
         
-f_remains_temp
+
 f_remains_unpainted
 f_remains_painted
     rts
@@ -808,19 +891,34 @@ f_unknown_transition
     illegal
     rts
 
+; < A0: zone to paint temporarily
+; < D0,D1: X,Y
+; trashes: none
 
+dot_painted_temp
+    move.b  #T,(a0)
+    move.b  #T,previous_tile_type   ;  update for next time
+    bra.b     dot_painted
 
+; < A0: zone to paint fully
+; < D0,D1: X,Y
+; trashes: none
+
+dot_painted_full
+    move.b  #F,(a0)
+    move.b  #F,previous_tile_type   ;  update for next time
 dot_painted
-
+    movem.l d0-d6/a0-a1,-(a7)
     ; store a0 for undo/rollback
 
     move.l  rollback_dot_table_pointer(pc),a1
     move.l  a0,(a1)+
     move.l  a1,rollback_dot_table_pointer
+
+    ; save X/Y
+    move.w  d0,d2
+    move.w  d1,d3
     
-    move.b  #T,d0
-    move.b  d0,(a0)
-    move.b  d0,previous_tile_type   ;  update for next time
     
     bsr play_paint_sound
     ; add 10 to the score
@@ -868,15 +966,7 @@ dot_painted
     move.l  d6,a0
     bsr     tile_painted
 .zz3
-    tst.b   a_rect_was_filled
-    beq.b   .no_fill_sound
-
-    ; nullify rollback lists, change temp paint to full paint
-    bsr     commit_paint
-    bsr     stop_paint_sound
-    lea     filled_sound,a0
-    bsr     play_fx
-.no_fill_sound
+    movem.l (a7)+,d0-d6/a0-a1
     rts
     
     
@@ -1261,6 +1351,7 @@ update_color_addresses
 init_player:
     clr.l   previous_valid_direction
     clr.w   death_frame_offset
+	
     tst.b   new_life_restart
     bne.b   .no_clear
     clr.l   previous_player_address   ; no previous position
@@ -1279,6 +1370,7 @@ init_player:
     move.w  #NB_TILES_PER_LINE*4,xpos(a0)
 	move.w	#Y_MAX,ypos(a0)
 	move.w 	#LEFT,direction(a0)
+	move.w	#LEFT,previous_direction
     clr.w  speed_table_index(a0)
     move.w  #-1,h_speed(a0)
     clr.w   v_speed(a0)
@@ -4862,7 +4954,6 @@ update_player
 .rustler
     ; enters here with d0-D1 and D2-D3 as x,y
     ; handle paint
-    clr.b   a_rect_was_filled
     
     ; get current tile type
     bsr get_tile_type
@@ -5106,24 +5197,16 @@ set_stored_tiles:
     move.b  d0,previous_tile_type
     lea     rollback_dot_table_buffer,a0
     move.l  rollback_dot_table_pointer(pc),d1
-.temp2full
+.ssloop
     cmp.l   a0,d1
     beq.b   .t2f_out
     move.l  (a0)+,a1
     move.b  d0,(a1)
-    bra.b   .temp2full
+    bra.b   .ssloop
 .t2f_out
     rts
     
-; what: zeroes all rollback lists, converts
-; temporary paint to definitive paint
-commit_paint
-    ; convert temp paint to full paint
-    move.b  #F,d0
-    bsr     set_stored_tiles
 
-    ; reset pointers to start of lists
-    bra reset_rollback_pointers
     
 rollback_paint:
     bsr stop_paint_sound
@@ -5160,6 +5243,7 @@ reset_rollback_pointers:
     move.l  #rollback_paint_zone_buffer,rollback_paint_zone_pointer
     move.l  #rollback_rectangle_buffer,rollback_rectangle_pointer
     move.l  #rollback_dot_table_buffer,rollback_dot_table_pointer
+    move.l  #pending_paint_rectangle_buffer,pending_paint_rectangle_pointer
     rts
     
 enemies_jump
@@ -5216,35 +5300,44 @@ count_dot
 tile_painted
     move.w  cdots(a0),d0
     beq.b   .no_dots
-    subq    #1,d0
-    bne.b   .still_dots
-    
-    clr.w   cdots(a0)
-    ; time to fill the rectangle
-    clr.b   was_playing_paint_sound
-    st.b    a_rect_was_filled
 
-    bsr     fill_rectangle
-    subq.b  #1,nb_rectangles
-    beq.b   level_completed
-
-    moveq.l   #0,d0
-    move.w  points(a0),d0
-    bra add_to_score        ; even levels: bonus awarded on rectfill
-.still_dots
-    move.w  d0,cdots(a0)
     ; store A0 in list for rollback
     bsr store_rectangle_rollback_address
+
+    subq.w  #1,cdots(a0)
+    bne.b   .still_dots
+    
+    ; no more dots
+    ; almost time to fill the rectangle
+    ;
+    ; put the rectangle in pending paint
+    ; will be validated when player enters a painted zone
+    bsr store_rectangle_pending_paint_address
+    
+.still_dots
 .no_dots
     rts
 
 ; < A0: rectangle address to store for rollback
 store_rectangle_rollback_address
+    move.l  a1,-(a7)
     move.l  rollback_rectangle_pointer(pc),a1
     move.l  a0,(a1)+
     move.l  a1,rollback_rectangle_pointer
+    move.l  (a7)+,a1
     rts
     
+; < A0: rectangle address to store for pending paint
+store_rectangle_pending_paint_address
+    move.l  a1,-(a7)
+    move.l  pending_paint_rectangle_pointer(pc),a1
+    move.l  a0,(a1)+
+    move.l  a1,pending_paint_rectangle_pointer
+    move.l  (a7)+,a1
+    rts
+    
+; < A0: pointer to rectangle structure
+
 fill_rectangle: 
     ; fill rectangle with color (plane 1)
     movem.l d1-d2/a0-a3,-(a7)
@@ -6425,6 +6518,10 @@ can_eat_enemies_mode_pending
     dc.w    0
 maze_fill_color
     dc.w    0
+previous_direction:
+    dc.w    0
+
+    
 total_number_of_dots:
     dc.b    0
 bonus_cattle_moving:
@@ -6443,8 +6540,6 @@ previous_tile_type:
 was_playing_paint_sound:
     dc.b    0
 new_life_restart:
-    dc.b    0
-a_rect_was_filled
     dc.b    0
 bonus_sprites:
     dc.b    0
@@ -6882,6 +6977,8 @@ rollback_rectangle_pointer:
     dc.l    0
 rollback_dot_table_pointer:
     dc.l    0
+pending_paint_rectangle_pointer:
+    dc.l    0
     
 keyboard_table:
     ds.b    $100,0
@@ -6890,7 +6987,9 @@ keyboard_table:
     include "intro_maze_data.s"       ; generated by "convert_sprites.py" python script
     include "maze_data.s"       ; generated by "convert_sprites.py" python script
 
-    
+floppy_file
+    dc.b    "floppy",0
+    even    
 ; BSS --------------------------------------
     SECTION  S2,BSS
 HWSPR_TAB_XPOS:	
@@ -6919,6 +7018,8 @@ rollback_rectangle_buffer:
     ds.l    NB_ROLLBACK_SLOTS
 rollback_dot_table_buffer:
     ds.l    NB_ROLLBACK_SLOTS
+pending_paint_rectangle_buffer:
+    ds.l    4
     
     even
     
