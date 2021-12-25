@@ -912,6 +912,32 @@ dot_painted_temp
     move.b  #T,d0
     bsr     dot_painted_shared
     
+    lea	screen_data+SCREEN_PLANE_SIZE,a1
+    move.w  d2,d0
+    move.w  d3,d1
+    addq.w  #8,d0
+    addq.w  #1,d1
+    cmp.w   #UP,direction(a4)
+    beq.b   .radd9
+    cmp.w   #DOWN,direction(a4)
+    beq.b   .radd8
+    ; horizontal
+    addq.w  #5,d1
+    cmp.w   #RIGHT,direction(a4)
+    bne.b   .noradd
+    subq.w  #1,d0   ; to right: 8 pixels left shift
+    bra.b   .noradd
+.radd8
+    ; vertical down
+    addq.l  #1,d1
+    bra.b   .noradd
+.radd9
+    ; vertical up
+    addq.l  #2,d1
+.noradd
+
+    ADD_XY_TO_A1    a0
+    
     move.l  d4,a0
     bsr     tile_painted
 .zz
@@ -925,6 +951,9 @@ dot_painted_temp
     move.l  d6,a0
     bsr     tile_painted
 .zz3
+    move.w  direction(a4),d3
+
+    bsr     paint_zone
     movem.l (a7)+,d0-d6/a0-a1
     rts
     
@@ -954,35 +983,8 @@ dot_painted_shared
     bsr play_paint_sound
     ; add 10 to the score
     moveq.l #1,d0
-    bsr add_to_score
+    bra add_to_score
 
-    lea	screen_data+SCREEN_PLANE_SIZE,a1
-    move.w  d2,d0
-    move.w  d3,d1
-    addq.w  #8,d0
-    addq.w  #1,d1
-    cmp.w   #UP,direction(a4)
-    beq.b   .radd9
-    cmp.w   #DOWN,direction(a4)
-    beq.b   .radd8
-    ; horizontal
-    addq.w  #5,d1
-    clr.w   d3  ; horizontal
-    bra.b   .noradd
-.radd8
-    ; vertical down
-    addq.l  #1,d1
-    moveq   #1,d3   ; vertical
-    bra.b   .noradd
-.radd9
-    ; vertical up
-    addq.l  #2,d1
-    moveq   #1,d3   ; vertical
-.noradd
-
-    ADD_XY_TO_A1    a0
-        
-    bra paint_zone
     
     
     
@@ -3131,37 +3133,42 @@ draw_dot:
     rts
 
 ; < A1 address
-; < D3 0 horizonal, 1 vertical
+; < D2: X
+; < D3 direction
+
 paint_zone:
     ; just copy the data of the backup plane
     ; for this we have to compute what is A1 address offset
     ; compared to second plane
     ; probably faster than recomputing that from X,Y
-    movem.l d0/d6/a0/a2,-(a7)
+    movem.l d0-d5/a0/a2,-(a7)
     move.l  rollback_paint_zone_pointer(pc),a0
     move.l  a1,(a0)+
     move.w  d3,(a0)+
-    cmp.l   #rollback_paint_zone_buffer_end,a0
-    bcs.b   .ok
-    blitz
-    nop
-    illegal
-.ok
+
     move.l  a0,rollback_paint_zone_pointer
+    
+    clr.b   smaller_vertical_paint
     bsr     prepare_paint_zone
+    ; > A0,A2,D2 set
 .loop
     move.b  (a0),d0
-    tst d3
-    beq.b   .horiz
+    cmp.w #LEFT,d3
+    beq.b   .cont
+    cmp.w #RIGHT,d3
+    beq.b   .right
     and.b   #$f0,d0 ; remove horizontal bar
-.horiz
+    bra.b   .cont
+.right
+
+.cont
     or.b  d0,(a1)
     or.b  d0,(a2)
-    add.w   d6,a0
-    add.w   d6,a1
-    add.w   d6,a2
+    add.w   d4,a0
+    add.w   d4,a1
+    add.w   d4,a2
     dbf     d2,.loop
-    movem.l (a7)+,d0/d6/a0/a2
+    movem.l (a7)+,d0-d5/a0/a2
     rts
     
 unpaint_zone:
@@ -3169,21 +3176,23 @@ unpaint_zone:
     ; for this we have to compute what is A1 address offset
     ; compared to second plane
     ; probably faster than recomputing that from X,Y
-    movem.l d0/d6/a0/a2,-(a7)
+    movem.l d0/d4/a0/a2,-(a7)
     bsr prepare_paint_zone
 .loop
     move.b  (a0),d0
-    tst d3
+    cmp.w   #LEFT,d3
+    beq.b   .horiz
+    cmp.w   #RIGHT,d3
     beq.b   .horiz
     and.b   #$f0,d0 ; remove horizontal bar
 .horiz
     eor.b  d0,(a1)
     eor.b  d0,(a2)
-    add.w   d6,a0
-    add.w   d6,a1
-    add.w   d6,a2
+    add.w   d4,a0
+    add.w   d4,a1
+    add.w   d4,a2
     dbf     d2,.loop
-    movem.l (a7)+,d0/d6/a0/a2
+    movem.l (a7)+,d0/d4/a0/a2
     rts
     
 ; unpaint/paint register shared computations
@@ -3197,14 +3206,19 @@ prepare_paint_zone
     add.l   d0,a0       ; offset of data to copy
     lea     paint_backup_plane,a2
     add.l   d0,a2
-    tst d3
+    cmp.w   #LEFT,d3
+    beq.b   .horiz
+    cmp.w   #RIGHT,d3
     beq.b   .horiz
     moveq.w #7,d2
+    tst.b   smaller_vertical_paint      ; hack we can change height (corner unpaint)
+    beq.b   .cont
+    moveq.w #5,d2
     bra.b   .cont
 .horiz
     moveq.w #1,d2
 .cont
-    move.w  #NB_BYTES_PER_LINE,d6
+    move.w  #NB_BYTES_PER_LINE,d4
     rts
     
 ; < A1 address
@@ -5220,20 +5234,6 @@ dircheck_up
 dircheck_down
     DIRCHECK_VERT   -7
     
-DRAW_RECT_LINE:MACRO
-    move.b  #$1F,(\2,\1)
-    move.b  #$FF,(\2+1,\1)
-    move.b  #$FF,(\2+2,\1)
-    move.b  #$FF,(\2+3,\1)
-    move.b  #$FF,(\2+4,\1)
-    ENDM
-DRAW_RECT_LINE_OR:MACRO
-    or.b  #$1F,(\2,\1)
-    move.b  #$FF,(\2+1,\1)
-    move.b  #$FF,(\2+2,\1)
-    move.b  #$FF,(\2+3,\1)
-    or.b  #$FF,(\2+4,\1)
-    ENDM
 
 
 
@@ -5292,11 +5292,52 @@ rollback_paint:
     ; unpaint zone
     lea     rollback_paint_zone_buffer,a0
     move.l  rollback_paint_zone_pointer(pc),d1
+    clr.l   d4
 .unpaint:
     cmp.l   a0,d1
     beq.b   .up_out
     move.l  (a0)+,a1
     move.w  (a0)+,d3
+    cmp.l   a1,d4
+    bne.b   .no_same
+    ; same means left upper corner
+    ; add y offset and reduce height
+    ;clr.l   d4
+    ;bra.b   .unpaint
+    ; case 1
+    ; up then left with same address
+    ; change mask of horizontal
+    clr.b   smaller_vertical_paint
+    cmp.w   #RIGHT,d3
+    beq.b   .horiz
+    cmp.w   #DOWN,d3
+    beq.b   .down
+    bra.b   .no_same
+.horiz
+    ; handle unpainting the corner
+    ; plane and backup plane
+    ; (even if backup plane doesn't seem
+    ; needed since player is far away when unpaint happens)
+    clr.b   (a1)
+    clr.b   (NB_BYTES_PER_LINE,a1)
+    
+    move.l  a1,d0
+    lea     screen_data,a2
+    sub.l   a2,d0
+    sub.l   #SCREEN_PLANE_SIZE,d0
+    ; now D0 is the offset of any plane
+    lea     paint_backup_plane,a2
+    add.l   d0,a2       ; offset of data to copy    
+    clr.b   (a2)
+    clr.b   (NB_BYTES_PER_LINE,a2)
+    
+    
+    bra.b   .unpaint
+.down
+    add.w  #NB_BYTES_PER_LINE*2,a1
+    st.b    smaller_vertical_paint
+.no_same
+    move.l  a1,d4
     bsr     unpaint_zone
     bra.b   .unpaint
 .up_out
@@ -5407,11 +5448,37 @@ store_rectangle_pending_paint_address
     move.l  (a7)+,a1
     rts
     
+; draw a line inside the rectangle
+
+DRAW_RECT_LINE:MACRO
+    or.b  #$1F,(\2,\1)
+    st  (\2+1,\1)
+    st   (\2+2,\1)
+    st  (\2+3,\1)
+    st  (\2+4,\1)
+    or.b  #$80,(\2+5,\1)
+    ENDM
+    
+; draw horizontal outline
+DRAW_RECT_HORIZ_OUTLINE:MACRO
+    or.b  #$3F,(\2,\1)
+    st  (\2+1,\1)
+    st  (\2+2,\1)
+    st  (\2+3,\1)
+    st  (\2+4,\1)
+    or.b  #$E0,(\2+5,\1)
+    ENDM
+; draw vertical outline
+DRAW_RECT_VERT_OUTLINE:MACRO
+    or.b  #$60,(\2,\1)
+    or.b  #$60,(\2+5,\1)
+    ENDM
+    
 ; < A0: pointer to rectangle structure
 
 fill_rectangle: 
     ; fill rectangle with color (plane 1)
-    movem.l d1-d2/a0-a3,-(a7)
+    movem.l d1-d2/a0-a4,-(a7)
     tst.w   specrect(a0)
     beq.b   .no_specrect
     subq.b  #1,nb_special_rectangles
@@ -5431,20 +5498,35 @@ fill_rectangle:
     sub.l   #screen_data,d0 ; offset
     lea grid_backup_plane,a2
     lea rect_backup_plane,a3
+    lea paint_backup_plane,a4
     add.l   d0,a2
     add.l   d0,a3
+    add.l   d0,a4
     move.w  #NB_BYTES_PER_LINE,d1
+    DRAW_RECT_HORIZ_OUTLINE  a1,SCREEN_PLANE_SIZE-NB_BYTES_PER_LINE*1
+    DRAW_RECT_HORIZ_OUTLINE  a1,SCREEN_PLANE_SIZE-NB_BYTES_PER_LINE*2
+    DRAW_RECT_HORIZ_OUTLINE  a4,-NB_BYTES_PER_LINE*1
+    DRAW_RECT_HORIZ_OUTLINE  a4,-NB_BYTES_PER_LINE*2
 .filly
-    DRAW_RECT_LINE_OR  a1,0
-    DRAW_RECT_LINE_OR  a2,0
+
+    DRAW_RECT_LINE  a1,0
+    DRAW_RECT_LINE  a2,0
     DRAW_RECT_LINE  a3,0
-    DRAW_RECT_LINE_OR  a1,SCREEN_PLANE_SIZE*2
+    DRAW_RECT_LINE  a1,SCREEN_PLANE_SIZE*2
+    
+    DRAW_RECT_VERT_OUTLINE  a1,0
+    DRAW_RECT_VERT_OUTLINE  a4,0
     add.w   d1,a1
     add.w   d1,a2
     add.w   d1,a3
+    add.w   d1,a4
     dbf d2,.filly
+    DRAW_RECT_HORIZ_OUTLINE  a4,0
+    DRAW_RECT_HORIZ_OUTLINE  a4,NB_BYTES_PER_LINE
+    DRAW_RECT_HORIZ_OUTLINE  a1,SCREEN_PLANE_SIZE
+    DRAW_RECT_HORIZ_OUTLINE  a1,SCREEN_PLANE_SIZE+NB_BYTES_PER_LINE
 
-    movem.l (a7)+,d1-d2/a0-a3
+    movem.l (a7)+,d1-d2/a0-a4
     
     rts
     
@@ -6611,6 +6693,8 @@ next_level_is_bonus_level
     dc.b    0
 nb_lives:
     dc.b    0
+smaller_vertical_paint:
+    dc.b    0
 rustler_level:
     dc.b    0
 
@@ -6953,6 +7037,13 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY filled,0,SOUNDFREQ
     SOUND_ENTRY jump,1,SOUNDFREQ
 
+; 0-49 divisibility table
+divisible_by_5_table
+    REPT    10
+    dc.b    1
+    dc.b    0,0,0,0
+    ENDR
+    
 jump_height_table
 	dc.b	-2,-2,-2,-2,-2,-2,-1,-2,-1,-2,-1,-1,-1,0,-1,-1,0,0,0,-1
 	dc.b	1,0,0,0,1,1,0,1,1,1,2,1,2,1,2,2,2,2,2,2
