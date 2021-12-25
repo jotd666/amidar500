@@ -1,4 +1,4 @@
-infile = r"C:\Users\Public\Documents\Amiga Files\WinUAE\maze_dots.bin"
+infile = r"..\maze.bin"
 
 d = {0:" ",1:'U',2:'T',3:'F'}
 

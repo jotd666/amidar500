@@ -816,7 +816,6 @@ f_temp_to_painted
     bra rollback_paint
 .validated
     bsr dot_painted_full
-.vloop
     bsr commit_paint
     rts
     
@@ -896,18 +895,6 @@ f_unknown_transition
 ; trashes: none
 
 dot_painted_temp
-    move.b  #T,(a0)
-    move.b  #T,previous_tile_type   ;  update for next time
-    bra.b     dot_painted
-
-; < A0: zone to paint fully
-; < D0,D1: X,Y
-; trashes: none
-
-dot_painted_full
-    move.b  #F,(a0)
-    move.b  #F,previous_tile_type   ;  update for next time
-dot_painted
     movem.l d0-d6/a0-a1,-(a7)
     ; store a0 for undo/rollback
 
@@ -918,40 +905,12 @@ dot_painted
     ; save X/Y
     move.w  d0,d2
     move.w  d1,d3
-    
-    
-    bsr play_paint_sound
-    ; add 10 to the score
-    moveq.l #1,d0
-    bsr add_to_score
-
-    move.w  d2,d0
-    move.w  d3,d1
+     
     ; load D4-D6 for later
     bsr     get_dot_rectangles
     
-    lea	screen_data+SCREEN_PLANE_SIZE,a1
-    move.w  d2,d0
-    move.w  d3,d1
-    addq.w  #8,d0
-    addq.w  #1,d1
-    cmp.w   #UP,direction(a4)
-    beq.b   .radd8
-    cmp.w   #DOWN,direction(a4)
-    beq.b   .radd8
-    ; horizontal
-    addq.w  #5,d1
-    clr.w   d3  ; horizontal
-    bra.b   .noradd
-.radd8
-    ; vertical
-    addq.l  #1,d1
-    moveq   #1,d3   ; vertical
-.noradd
-
-    ADD_XY_TO_A1    a0
-        
-    bsr paint_zone
+    move.b  #T,d0
+    bsr     dot_painted_shared
     
     move.l  d4,a0
     bsr     tile_painted
@@ -968,6 +927,63 @@ dot_painted
 .zz3
     movem.l (a7)+,d0-d6/a0-a1
     rts
+    
+; < A0: zone to paint fully
+; < D0,D1: X,Y
+; trashes: none
+
+dot_painted_full
+    movem.l d0-d6/a0-a1,-(a7)
+    
+    ; save X/Y
+    move.w  d0,d2
+    move.w  d1,d3
+
+    move.b  #F,d0    
+    bsr     dot_painted_shared
+    
+    movem.l (a7)+,d0-d6/a0-a1
+    rts
+        
+    
+    
+dot_painted_shared
+    move.b  d0,(a0)
+    move.b  d0,previous_tile_type   ;  update for next time
+
+    bsr play_paint_sound
+    ; add 10 to the score
+    moveq.l #1,d0
+    bsr add_to_score
+
+    lea	screen_data+SCREEN_PLANE_SIZE,a1
+    move.w  d2,d0
+    move.w  d3,d1
+    addq.w  #8,d0
+    addq.w  #1,d1
+    cmp.w   #UP,direction(a4)
+    beq.b   .radd9
+    cmp.w   #DOWN,direction(a4)
+    beq.b   .radd8
+    ; horizontal
+    addq.w  #5,d1
+    clr.w   d3  ; horizontal
+    bra.b   .noradd
+.radd8
+    ; vertical down
+    addq.l  #1,d1
+    moveq   #1,d3   ; vertical
+    bra.b   .noradd
+.radd9
+    ; vertical up
+    addq.l  #2,d1
+    moveq   #1,d3   ; vertical
+.noradd
+
+    ADD_XY_TO_A1    a0
+        
+    bra paint_zone
+    
     
     
 clear_playfield_planes
@@ -1292,6 +1308,20 @@ init_enemies
     ; all enemies normal palette
     bsr set_enemy_normal_palette
 
+    move.w   #50,d1
+    ; speeds & attack timeouts
+    move.w  level_number(pc),d0
+    cmp.w   #13,d0
+    bcc.b   .immediately
+    lea     attack_timeout_table(pc),a0
+    add.w   d0,d0
+    move.w  (a0,d0.w),d1
+.immediately
+    move.w  d1,attack_timeout
+
+    clr.b   thief_attacks
+
+
     lea enemies(pc),a0
     ; specific settings
     tst.b   bonus_sprites
@@ -1538,7 +1568,10 @@ draw_debug
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
     clr.l   d2
-    move.l #rect_2_20,d2
+    lea rect_2_18,a0
+    clr.l   d2
+    move.w  cdots(a0),d2
+    ;move.l #rect_2_18,d2
     move.w  #8,d3
     bsr write_hexadecimal_number
 
@@ -3108,6 +3141,12 @@ paint_zone:
     move.l  rollback_paint_zone_pointer(pc),a0
     move.l  a1,(a0)+
     move.w  d3,(a0)+
+    cmp.l   #rollback_paint_zone_buffer_end,a0
+    bcs.b   .ok
+    blitz
+    nop
+    illegal
+.ok
     move.l  a0,rollback_paint_zone_pointer
     bsr     prepare_paint_zone
 .loop
@@ -3393,7 +3432,7 @@ level2_interrupt:
     move.w  #1,can_eat_enemies_mode_pending
     bra.b   .no_playing
 .no_bonus
-    cmp.b   #$55,d0     ; F5
+    cmp.b   #$55,d0     ; F6
     bne.b   .no_longer_bonus
     ; make the "power pill" sequence longer only if power mode
     tst.w     power_state_counter
@@ -3401,6 +3440,18 @@ level2_interrupt:
     move.w  #POWER_STATE_LENGTH,power_state_counter
     bra.b   .no_playing
 .no_longer_bonus
+    cmp.b   #$56,d0     ; F7
+    bne.b   .no_maze_dump
+    tst.l   _resload
+    beq.b   .no_maze_dump
+    movem.l d0-d1/a0-a2,-(a7)
+    move.l maze_wall_table(pc),a1
+    lea     maze_dump_file,a0
+    move.l  _resload(pc),a2
+    move.l  #26*27,D0
+    jsr     (resload_SaveFile,a2)
+    movem.l (a7)+,d0-d1/a0-a2
+.no_maze_dump
 
 
 .no_playing
@@ -4136,6 +4187,16 @@ update_intro_screen
     
     
 update_enemies:
+    move.w  attack_timeout(pc),d0
+    beq.b   .az
+    subq.w  #1,d0
+    move.w  d0,attack_timeout
+    bne.b   .az
+    ; just reached zero: set attack flag
+    st.b    thief_attacks
+    move.b  #2,thief_attack_sound
+    clr.w   thief_attack_sound_timer
+.az
     lea enemies(pc),a4
     tst.w   can_eat_enemies_mode_pending
     beq.b   .no_eat_mode_pending
@@ -5316,6 +5377,7 @@ tile_painted
     ;
     ; put the rectangle in pending paint
     ; will be validated when player enters a painted zone
+
     bsr store_rectangle_pending_paint_address
     
 .still_dots
@@ -5327,6 +5389,11 @@ store_rectangle_rollback_address
     move.l  a1,-(a7)
     move.l  rollback_rectangle_pointer(pc),a1
     move.l  a0,(a1)+
+    cmp.l   #rollback_rectangle_buffer_end,a1
+    bcs.b   .ok
+    blitz
+    illegal
+.ok
     move.l  a1,rollback_rectangle_pointer
     move.l  (a7)+,a1
     rts
@@ -5739,7 +5806,7 @@ get_tile_type:
     add.w   d1,d1
     move.w  (a0,d1.w),d1    ; times 26
     move.l maze_wall_table(pc),a0
-    ;;move.l  a0,$100     ; TEMP
+    
     
     add.w   d1,a0
     lsr.w   #3,d0   ; 8 divide
@@ -6526,7 +6593,14 @@ maze_fill_color
     dc.w    0
 previous_direction:
     dc.w    0
-
+attack_timeout:
+    dc.w    0
+thief_attack_sound_timer:
+    dc.w    0
+thief_attacks:
+    dc.b    0
+thief_attack_sound:
+    dc.b    0
     
 total_number_of_dots:
     dc.b    0
@@ -6884,6 +6958,24 @@ jump_height_table
 	dc.b	1,0,0,0,1,1,0,1,1,1,2,1,2,1,2,2,2,2,2,2
 jump_height_table_end    
 
+; attack timeouts
+
+attack_timeout_table
+    dc.w    ORIGINAL_TICKS_PER_SEC*95
+    dc.w    ORIGINAL_TICKS_PER_SEC*80
+    dc.w    ORIGINAL_TICKS_PER_SEC*65
+    dc.w    ORIGINAL_TICKS_PER_SEC*55
+    dc.w    ORIGINAL_TICKS_PER_SEC*53
+    dc.w    ORIGINAL_TICKS_PER_SEC*25
+    dc.w    ORIGINAL_TICKS_PER_SEC*12
+    dc.w    ORIGINAL_TICKS_PER_SEC*10
+    dc.w    ORIGINAL_TICKS_PER_SEC*8
+    dc.w    ORIGINAL_TICKS_PER_SEC*5
+    dc.w    ORIGINAL_TICKS_PER_SEC*4
+    dc.w    ORIGINAL_TICKS_PER_SEC*3
+    dc.w    ORIGINAL_TICKS_PER_SEC*2
+    dc.w    ORIGINAL_TICKS_PER_SEC*1
+
 
  ; speed table at 60 Hz
 speed_table:  ; lifted from https://github.com/shaunlebron/pacman/blob/master/src/Actor.js
@@ -6995,6 +7087,8 @@ keyboard_table:
 
 floppy_file
     dc.b    "floppy",0
+maze_dump_file
+    dc.b    "maze.bin",0
     even    
 ; BSS --------------------------------------
     SECTION  S2,BSS
@@ -7020,10 +7114,13 @@ maze_wall_table_copy
     
 rollback_paint_zone_buffer:
     ds.l    NB_ROLLBACK_SLOTS*2
+rollback_paint_zone_buffer_end
 rollback_rectangle_buffer:
     ds.l    NB_ROLLBACK_SLOTS
+rollback_rectangle_buffer_end
 rollback_dot_table_buffer:
     ds.l    NB_ROLLBACK_SLOTS
+rollback_dot_table_buffer_end
 pending_paint_rectangle_buffer:
     ds.l    6
     

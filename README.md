@@ -39,8 +39,8 @@ ISSUES:
 - music loops wrong ... even in bonus mode sometimes
 - level 3: music doesn't start immediately
 - undo_paint: not perfect
-- sometimes rollbacks instead of commiting (semi-random), still unexpected transition states
-  => impossible to end the level
+- paint: missing corners
+- can paint corner with no painted neighbours
 
 TODO:
 
