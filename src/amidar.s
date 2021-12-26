@@ -91,7 +91,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
@@ -3528,6 +3528,10 @@ level2_interrupt:
     jsr     (resload_SaveFile,a2)
     movem.l (a7)+,d0-d1/a0-a2
 .no_maze_dump
+    cmp.b   #$57,d0     ; F8
+    bne.b   .no_attack
+    move.w  #1,attack_timeout
+.no_attack
 
 
 .no_playing
@@ -4006,6 +4010,15 @@ BLINK_BASE_TIME = POWER_SONG_LENGTH+POWER_SONG_LENGTH/2
 
 COLLISION_SHIFTING_PRECISION = 3
 
+set_thief_attack_mode
+    st.b    thief_attacks
+    move.b  #3,thief_attack_sound_count
+    move.w  #1,thief_attack_sound_count_timer
+    lea     enemies(pc),a0
+    move.w  #MODE_WANDER,mode(a0)
+    ; set timer for full attack mode
+    rts
+    
 check_collisions
     lea player(pc),a3
     move.w  xpos(a3),d0
@@ -4298,10 +4311,24 @@ update_enemies:
     move.w  d0,attack_timeout
     bne.b   .az
     ; just reached zero: set attack flag
-    st.b    thief_attacks
-    move.b  #2,thief_attack_sound
-    clr.w   thief_attack_sound_timer
+    bsr     set_thief_attack_mode
 .az
+    tst.b   thief_attacks
+    beq.b   .no_attack_sound
+    tst.b   thief_attack_sound_count
+    beq.b   .no_attack_sound
+    move.w  thief_attack_sound_count_timer(pc),d0
+    subq.w  #1,d0
+    bne.b   .no_sound_timer
+    subq.b  #1,thief_attack_sound_count
+    ; play sound
+    lea thief_attacks_sound,a0
+    bsr play_fx
+    move.w  #ORIGINAL_TICKS_PER_SEC-15,d0
+.no_sound_timer
+    move.w   d0,thief_attack_sound_count_timer
+    
+.no_attack_sound
     lea enemies(pc),a4
     tst.w   can_eat_enemies_mode_pending
     beq.b   .no_eat_mode_pending
@@ -6853,11 +6880,11 @@ previous_direction:
     dc.w    0
 attack_timeout:
     dc.w    0
-thief_attack_sound_timer:
+thief_attack_sound_count_timer:
     dc.w    0
 thief_attacks:
     dc.b    0
-thief_attack_sound:
+thief_attack_sound_count:
     dc.b    0
     
 total_number_of_dots:
@@ -7199,6 +7226,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY enemy_falling,2,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
     SOUND_ENTRY extra_life,0,SOUNDFREQ
+    SOUND_ENTRY thief_attacks,2,SOUNDFREQ
     SOUND_ENTRY player_killed,2,SOUNDFREQ
     SOUND_ENTRY credit,1,SOUNDFREQ
     SOUND_ENTRY eat,3,SOUNDFREQ
@@ -7729,6 +7757,12 @@ score_5000:
     dc.l    0
     incbin  "scores_5000.bin"
     dc.l    0
+
+
+thief_attacks_raw
+    incbin  "thief_attacks.raw"
+    even
+thief_attacks_raw_end
 
 
 credit_raw
