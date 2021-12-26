@@ -38,34 +38,19 @@ ISSUES:
 - intro: wrong start move, maze check rework probably caused that
 - music loops wrong ... even in bonus mode sometimes
 - level 3: music doesn't start immediately
-- undo_paint: not perfect
-- paint: missing corners
+- undo_paint: not perfect but pretty close
+- paint: missing bottom right corner
 - can paint corner with no painted neighbours
+- crash enemy falling: LINEA bad jump table WTF???
 
 TODO:
 
 - gameover with score: go to score table directly with score flashing
 - thief attack pauses, then more or less random, then follow
-  level 1: thief almost 8 loops: attacks
-  level 2: thief almost 7 loops: 80 seconds
-  level 3: 65 seconds
-        4: 55
-        5: 53
-        6: 25
-        7: 12
-        8: 10
-        9: 8
-        10: 5
-        11: 4
-        12: 3
-        13: 2
-        14: 0
-        
 - enemy speed increasing, level 1-2: 20/20 level 3-4: 20/19 levl 5-6: 20/18
   level 8: 20/16 level 9-13: 20/15, at level 15 reaches 20/13 speed (max)
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- 
-- commit_paint: re-paint rectangle bounds too
+
 
 CREDITS:
 

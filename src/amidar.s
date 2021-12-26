@@ -91,13 +91,13 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
-NO_ENEMIES
+;NO_ENEMIES
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -111,7 +111,7 @@ EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
 NB_HIGH_SCORES = 10
 
-START_LEVEL = 2
+START_LEVEL = 1
 
 N = 0;  if no maze, 
 U = 1;                  if has dot (unpainted)
@@ -183,9 +183,6 @@ NB_ROLLBACK_SLOTS = 80
 MSG_NONE = 0
 MSG_SHOW = 1
 MSG_HIDE = 2
-
-
-NB_FLASH_FRAMES = 14
 
 
 PLAYER_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
@@ -352,6 +349,8 @@ Start:
     ; uncomment to test demo mode right now
     ;;st.b    demo_mode
     ENDC
+    
+    move.w  #-1,high_score_position
     
     bsr init_state_transition_table
     bsr init_sound
@@ -584,6 +583,7 @@ intro:
     move.l  score(pc),d0
     lea     hiscore_table(pc),a0
     moveq.w  #NB_HIGH_SCORES-1,d1
+    move.w   #-1,high_score_position
 .hiloop
     cmp.l  (a0)+,d0
     bcs.b   .lower
@@ -595,11 +595,16 @@ intro:
     move.l  a0,a2   ; store for later
     tst.w   d1
     beq.b   .storesc    ; no lower scores: exit (else crash memory!)
+    move.w  d1,d2       ; store insertion position
 .hishift_loop
     move.l  (a0)+,(a1)+
-    dbf d1,.hishift_loop
+    dbf d2,.hishift_loop
 .storesc
     move.l  d0,(a2)
+    ; store the position of the highscore just obtained
+    neg.w   d1
+    add.w   #NB_HIGH_SCORES-1,d1
+    move.w  d1,high_score_position
     bra.b   .hiout
 .lower
     dbf d1,.hiloop
@@ -2077,12 +2082,14 @@ draw_intro_screen
     bsr clear_screen
     bsr draw_score
     ; high scores
+    
     move.w  #40,d0
     move.w  #8,d1
     lea .score_ranking(pc),a0
     move.w  #$0F0,d2
     bsr     write_color_string
     
+    ; write high scores & position
     move.w  #24,D1
     lea     .color_table(pc),a2
     lea     .pos_table(pc),a3
@@ -2226,7 +2233,7 @@ draw_intro_screen
     rts
     
 .no_part1
-    ; nothing to animate in part 2 (highscores)
+    
     cmp.b   #3,d0
     bne.b   .no_part3
     ; blit characters
@@ -2296,6 +2303,39 @@ draw_intro_screen
     rts
     
 .no_part3
+; part 2 highscores
+    tst.w   high_score_position
+    bmi.b   .out3
+    
+    lea high_score_highlight_color_table(pc),a0
+    move.w  high_score_highlight_color_index(pc),d0
+    add.w   d0,d0
+    move.w  (a0,d0.w),d2
+    
+    move.w  d2,d4
+    move.w  #32,d0
+
+    lea     .pos_table(pc),a3
+    move.w  high_score_position(pc),d5
+    add.w   d5,d5
+    add.w   d5,d5
+    move.l  (a3,d5.w),a0
+    move.w  high_score_highlight_y(pc),d1
+    bsr     write_blanked_color_string
+    
+    lea     hiscore_table(pc),a4
+    move.l  (a4,d5.w),d2
+    
+    move.w  #56,d0
+    move.w  #8,d3
+    bsr write_blanked_color_decimal_number
+
+    move.w  d4,d2
+    move.w  #120,d0
+    lea .pts(pc),a0
+    bsr write_blanked_color_string
+
+.out3
     rts
 .draw_bob
     move.w intro_frame_index(pc),d6
@@ -2387,7 +2427,20 @@ draw_intro_screen
 .score_ranking
     dc.b    "- SCORE RANKING -",0
     even
-    
+
+high_score_position
+    dc.w    0
+high_score_highlight_y
+    dc.w    0
+high_score_highlight_timer
+    dc.w    0
+high_score_highlight_color_index
+    dc.w    0
+high_score_highlight_color_table
+    dc.w    $0FF
+    dc.w    $0F0
+    dc.w    $FF0
+    dc.w    $FFF
 high_score
     dc.l    DEFAULT_HIGH_SCORE
 hiscore_table:
@@ -2438,50 +2491,59 @@ draw_copyright
 ; trashes: none
 
 clear_plane_any_cpu
+    move.w  d3,-(a7)
+    move.w  #16,d3
+    bsr     clear_plane_any_cpu_any_height
+    move.w  (a7)+,d3
+    rts
+    
+clear_plane_any_cpu_any_height    
     movem.l d0-D3/a0-a2,-(a7)
+    subq.w  #1,d3
+    bmi.b   .out
     lea mul40_table(pc),a2
     add.w   d1,d1
     beq.b   .no_add
     move.w  (a2,d1.w),d1
     add.w   d1,a1
 .no_add
-    move.l  a1,a0
 
     lsr.w   #3,d0
     add.w   d0,a1
     btst    #0,d0
-    beq.b   .even
-    
+    bne.b   .odd
+    cmp.w   #4,d2
+    bcc.b   .even
+.odd    
     ; odd address
-    move.w  #15,d0
+    move.w  d3,d0
     subq.w  #1,d2
 .yloop
+    move.l  a1,a0
     move.w  d2,d1   ; reload d1
 .xloop
     clr.b   (a0)+
     dbf d1,.xloop
     ; next line
-    add.l   #NB_BYTES_PER_LINE,a1
-    move.l  a1,a0
+    add.w   #NB_BYTES_PER_LINE,a1
     dbf d0,.yloop
 .out
     movem.l (a7)+,d0-D3/a0-a2
     rts
 
 .even
-    ; even address
-    move.w  #15,d0
+    ; even address, big width: can use longword erase
+    move.w  d3,d0
     lsr.w   #2,d2
-    beq.b   .out    ; < 4 not supported
     subq.w  #1,d2
 .yloop2
+    move.l  a1,a0
     move.w  d2,d1
 .xloop2
     clr.l   (a0)+
     dbf d1,.xloop2
     ; next line
-    add.l   #NB_BYTES_PER_LINE,a1
-    move.l  a1,a0
+    add.w   #NB_BYTES_PER_LINE,a1
     dbf d0,.yloop2
     bra.b   .out
     
@@ -4032,6 +4094,9 @@ update_intro_screen
     bne.b   .no_first
     
 .first
+    tst.w   high_score_position
+    bpl.b   .second
+    
     move.b  #1,intro_step
     st.b    intro_state_change
 
@@ -4054,6 +4119,15 @@ update_intro_screen
 .no_first 
     cmp.l   #ORIGINAL_TICKS_PER_SEC*9,d0
     bne.b   .no_second
+.second
+    move.w   high_score_position(pc),d0
+    bmi.b   .no_init_second
+    lsl.w   #4,d0   ; times 16
+    add.w   #24,d0  ; plus offset
+    move.w  d0,high_score_highlight_y
+    clr.w   high_score_highlight_timer
+    clr.w   high_score_highlight_color_index
+.no_init_second
     move.b  #2,intro_step
     st.b    intro_state_change
     bra.b   .cont
@@ -4061,6 +4135,12 @@ update_intro_screen
     cmp.l   #ORIGINAL_TICKS_PER_SEC*12,d0
     bne.b   .cont
 .third
+    ; highscore highlight => first screen
+    tst.w   high_score_position
+    bmi.b   .really_third
+    move.w  #-1,high_score_position
+    bra.b   .reset_first
+.really_third
     ; third screen init
     st.b    intro_state_change
     move.b  #3,intro_step
@@ -4079,6 +4159,7 @@ update_intro_screen
     add.l   #1,D0
     cmp.l   #ORIGINAL_TICKS_PER_SEC*22,d0
     bne.b   .no3end
+.reset_first
     ; screen 3 end => demo mode TODO
     clr.l   state_timer
     bra.b   .first
@@ -4114,6 +4195,16 @@ update_intro_screen
     addq.w  #1,ypos(a4)
     rts
 .step2
+    tst.w   high_score_position
+    bmi.b   .out
+    add.w   #1,high_score_highlight_timer
+    cmp.w   #4,high_score_highlight_timer
+    bne.b   .out
+    clr.w   high_score_highlight_timer
+    add.w   #1,high_score_highlight_color_index
+    cmp.w   #4,high_score_highlight_color_index
+    bne.b   .out
+    clr.w   high_score_highlight_color_index
     rts
 .step3
     add.w   #1,intro_frame_index
@@ -5503,6 +5594,8 @@ fill_rectangle:
     add.l   d0,a3
     add.l   d0,a4
     move.w  #NB_BYTES_PER_LINE,d1
+    tst.b   rustler_level
+    beq.b   .filly
     DRAW_RECT_HORIZ_OUTLINE  a1,SCREEN_PLANE_SIZE-NB_BYTES_PER_LINE*1
     DRAW_RECT_HORIZ_OUTLINE  a1,SCREEN_PLANE_SIZE-NB_BYTES_PER_LINE*2
     DRAW_RECT_HORIZ_OUTLINE  a4,-NB_BYTES_PER_LINE*1
@@ -5514,18 +5607,24 @@ fill_rectangle:
     DRAW_RECT_LINE  a3,0
     DRAW_RECT_LINE  a1,SCREEN_PLANE_SIZE*2
     
+    tst.b   rustler_level
+    beq.b   .no_vert_outline
     DRAW_RECT_VERT_OUTLINE  a1,0
     DRAW_RECT_VERT_OUTLINE  a4,0
+    add.w   d1,a4
+.no_vert_outline
     add.w   d1,a1
     add.w   d1,a2
     add.w   d1,a3
-    add.w   d1,a4
     dbf d2,.filly
+    
+    tst.b   rustler_level
+    beq.b   .no_outline
     DRAW_RECT_HORIZ_OUTLINE  a4,0
     DRAW_RECT_HORIZ_OUTLINE  a4,NB_BYTES_PER_LINE
     DRAW_RECT_HORIZ_OUTLINE  a1,SCREEN_PLANE_SIZE
     DRAW_RECT_HORIZ_OUTLINE  a1,SCREEN_PLANE_SIZE+NB_BYTES_PER_LINE
-
+.no_outline
     movem.l (a7)+,d1-d2/a0-a4
     
     rts
@@ -6244,6 +6343,18 @@ write_decimal_number
     bsr convert_number
     bra write_string
     
+write_color_decimal_number
+    movem.l A0-A1/D2-d6,-(a7)
+    lea     write_color_string(pc),a1
+    bsr.b     write_color_decimal_number_internal
+    movem.l (a7)+,A0-A1/D2-d6
+    rts
+write_blanked_color_decimal_number
+    movem.l A0-A1/D2-d6,-(a7)
+    lea     write_blanked_color_string(pc),a1
+    bsr.b     write_color_decimal_number_internal
+    movem.l (a7)+,A0-A1/D2-d6
+    rts
 ; what: writes an decimal number with a given color
 ; args:
 ; < D0: X (multiple of 8)
@@ -6253,8 +6364,7 @@ write_decimal_number
 ; < D4: RGB4 color
 ; > D0: number of characters written
     
-write_color_decimal_number
-    movem.l A0/D2-d6,-(a7)
+write_color_decimal_number_internal
     cmp.w   #18,d3
     bcs.b   .padok
     move.w  #18,d3
@@ -6278,12 +6388,11 @@ write_color_decimal_number
     moveq   #4,d3   ; pad to 4
 .one
     bsr     .write_num
-    movem.l (a7)+,A0/D2-d6
     rts
 .write_num
     bsr convert_number
     move.w  d4,d2
-    bra write_color_string
+    jmp     (a1) 
     
     
 ; < D2: value
@@ -6322,6 +6431,73 @@ convert_number
     dc.b    0
     even
     
+
+; what: writes a text in a given color, clears
+; non-written planes (just in case another color was
+; written earlier)
+; args:
+; < A0: c string
+; < D0: X (multiple of 8)
+; < D1: Y
+; < D2: RGB4 color (must be in palette!)
+; > D0: number of characters written
+; trashes: none
+
+write_blanked_color_string:
+    movem.l D1-D6/A1,-(a7)
+    ; compute string length first in D6
+    clr.w   d6
+.strlen
+    tst.b   (a0,d6.w)
+    beq.b   .outstrlen
+    addq.w  #1,d6
+    bra.b   .strlen
+.outstrlen
+    ; D6 has string length
+    lea game_palette(pc),a1
+    moveq   #15,d3
+    moveq   #0,d5
+.search
+    move.w  (a1)+,d4
+    cmp.w   d4,d2
+    beq.b   .color_found
+    addq.w  #1,d5
+    dbf d3,.search
+    moveq   #0,d0   ; nothing written
+    bra.b   .out
+.color_found
+    ; d5: color index
+    lea screen_data,a1
+    moveq   #3,d3
+    move.w  d0,d4
+.plane_loop
+; < A0: c string
+; < A1: plane
+; < D0: X (multiple of 8)
+; < D1: Y
+; > D0: number of characters written
+    move.w  d4,d0
+    btst    #0,d5
+    beq.b   .clear_plane
+    bsr write_string
+    bra.b   .next_plane
+.clear_plane
+    movem.l d0-d6/a1/a5,-(a7)
+    move.w  d6,d2   ; width in bytes = string length
+    ;lea _custom,a5
+    ;moveq.l #-1,d3
+    move.w  #8,d3
+
+    bsr clear_plane_any_cpu_any_height
+    movem.l (a7)+,d0-d6/a1/a5
+.next_plane
+    lsr.w   #1,d5
+    add.l   #SCREEN_PLANE_SIZE,a1
+    dbf d3,.plane_loop
+.out
+    movem.l (a7)+,D1-D6/A1
+    rts
+    
 ; what: writes a text in a given color
 ; args:
 ; < A0: c string
@@ -6331,7 +6507,7 @@ convert_number
 ; > D0: number of characters written
 ; trashes: none
 
-write_color_string
+write_color_string:
     movem.l D1-D5/A1,-(a7)
     lea game_palette(pc),a1
     moveq   #15,d3
@@ -6928,12 +7104,6 @@ no_direction_choice_table:
     ENDR
     even
     
-    ; fright time + number of flashes. Each flash is 14 frames long
-    ; 4 words: total number of frames for fright mode,
-    ;          number of frames to start flashing
-DEF_FRIGHT_ENTRY:MACRO
-    dc.w    ORIGINAL_TICKS_PER_SEC*\1,NB_FLASH_FRAMES*\2*2
-    ENDM
     
 score_value_table
     dc.l    20,40,80,160
