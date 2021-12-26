@@ -131,12 +131,14 @@ TF = (T<<TSHIFT)+F
 UT = (U<<TSHIFT)+T
 FT = (F<<TSHIFT)+T
 
+NB_RECORDED_MOVES = 500
+
 BONUS_PENDING = 0
 BONUS_WON = 1
 BONUS_LOST = 2
 
 MODE_NORMAL = 0     ; police/cattle only. normal amidar movement
-MODE_WANDER = 1<<2     ; thief only. thief ventures in the maze
+MODE_STANDBY = 1<<2     ; thief only. thief ventures in the maze
 MODE_BORDER_PATROL = 2<<2 ; thief only. thief moves along maze borders
 MODE_CHASE = 3<<2      ; thief only. thief chases player
 MODE_FRIGHT = 4<<2     ; enemies are killable
@@ -1327,8 +1329,9 @@ init_enemies
     move.w  d1,attack_timeout
 
     clr.b   thief_attacks
-
-
+    clr.b   player_move_record
+    st.b    first_recorded_move
+    
     lea enemies(pc),a0
     ; specific settings
     tst.b   bonus_sprites
@@ -4012,10 +4015,11 @@ COLLISION_SHIFTING_PRECISION = 3
 
 set_thief_attack_mode
     st.b    thief_attacks
-    move.b  #3,thief_attack_sound_count
+    move.b  #4,thief_attack_sound_count
     move.w  #1,thief_attack_sound_count_timer
+    move.w  #ORIGINAL_TICKS_PER_SEC,thief_standby_timer
     lea     enemies(pc),a0
-    move.w  #MODE_WANDER,mode(a0)
+    move.w  #MODE_STANDBY,mode(a0)
     ; set timer for full attack mode
     rts
     
@@ -4355,7 +4359,9 @@ update_enemies:
     
 .gloop
     move.w  mode(a4),d0
+    move.l d7,-(a7)
     bsr     move_according_to_mode
+    move.l  (a7)+,d7
     add.w   #Enemy_SIZEOF,a4
     dbf d7,.gloop
     rts
@@ -4374,7 +4380,7 @@ animate_enemy
     rts
 enemy_move_table
     dc.l    move_normal
-    dc.l    move_wander
+    dc.l    move_standby
     dc.l    move_border_patrol
     dc.l    move_chase
     dc.l    move_fright
@@ -4620,8 +4626,73 @@ enemy_try_vertical
     bra.b   .no_vertical
 
     
-move_wander
+move_standby
+    bsr     animate_enemy
+    subq.w  #1,thief_standby_timer
+    bne.b   .out
+
+    ; timeout reached. If player move recorder
+    ; isn't started, start it
+    tst.b   player_move_record
+    bne.b   .record_started
+    st.b    player_move_record
+    ; will re-switch to standby when first objective is reached
+    st.b    first_thief_objective
+    st.b    first_recorded_move
+    clr.w   thief_move_index
+    clr.w   player_move_index
+    bsr     store_player_tile
+    
+    move.w  #MODE_CHASE,mode(a4)    ; attack player!
+.out
     rts
+.record_started
+    
+    rts
+
+; store player tile only if the same as previously
+; or the first one
+store_player_tile
+    lea     player_move_buffer,a1
+    lea     player(pc),a0
+    move.w  xpos(a0),d2
+    lsr.w   #3,d2
+    move.w  ypos(a0),d3
+    lsr.w   #3,d3
+    tst.b   first_recorded_move
+    bne.b   .store
+    ; get previous values
+    bsr     get_latest_player_tile
+    cmp.w   d0,d2
+    bne.b   .store2
+    cmp.w   d1,d3
+    beq.b   .out        ; same tile as earlier: don't record
+.store
+    clr.b   first_recorded_move
+.store2
+    ; store current player position
+    move.w  player_move_index(pc),d1
+    move.w  d2,(a1,d1.w)
+    move.w  d3,2(a1,d1.w)
+    addq.w  #4,d1
+    cmp.w   #NB_RECORDED_MOVES*4,d1
+    bne.b   .no_wrap
+    clr.w   d1
+.no_wrap
+    move.w  d1,player_move_index
+.out
+    rts
+    
+get_latest_player_tile
+    lea     player_move_buffer,a1
+    move.w  player_move_index(pc),d1
+    bne.b   .no_wrap
+    add.w   #NB_RECORDED_MOVES*4,d1
+.no_wrap
+    move.w  -4(a1,d1.w),d0
+    move.w  -2(a1,d1.w),d1
+    rts
+
     
 move_border_patrol    
     bsr animate_enemy
@@ -4644,8 +4715,11 @@ move_border_patrol
     add.w   d4,xpos(a4)
     add.w   d5,ypos(a4)
     
-    ; TODO: change mode after a while because of mode timer
-    ; first wander then chase
+    ; change mode to chase after a while because of mode timer
+    sub.w  #1,attack_timeout
+    bne.b   .no_attack
+    bsr     set_thief_attack_mode
+.no_attack    
     rts
 .change
     tst.w   d4
@@ -4738,7 +4812,90 @@ move_kill:
     rts
     
 move_chase
+    bsr     animate_enemy
+    ; enemy tries to reach objective
+    lea player_move_buffer,a2
+    move.w  thief_move_index(pc),d0
+    ; objective
+    move.w  (a2,d0.w),d2
+    move.w  2(a2,d0.w),d3
+    ;blitz
+    ;nop
+    
+    ; enemy position
+    move.w  (xpos,a4),d0
+    move.w  d0,d4
+    lsr.w   #3,d4
+    move.w  (ypos,a4),d1
+    move.w  d1,d5
+    lsr.w   #3,d5
+
+    move.w  d0,d6   ; save d0
+    move.w  d1,d7   ; save d1
+
+    ; first test y
+    cmp.w   d5,d3
+    beq.b   .try_x
+    ; check if enemy is below player
+    bcs.b   .enemy_below
+    ; enemy is above player
+    ; can it move down?
+    addq.w  #1,d1
+    bsr     is_location_legal
+    tst.b   d0
+    beq.b   .cant_move_vertically
+    ; can move up: validate it
+    move.w  d7,d1
+    addq.w  #1,d1
+    move.w  d1,ypos(a4)
+    bra.b   .out
+.enemy_below    
+    ; can it move up?
+    subq.w  #1,d1
+    bsr     is_location_legal
+    tst.b   d0
+    beq.b   .cant_move_vertically
+    ; can move up: validate it
+    move.w  d7,d1
+    subq.w  #1,d1
+    move.w  d1,ypos(a4)
+    bra.b   .out
+.cant_move_vertically
+    ; reset d0,d1 and try x
+    move.w  d6,d0
+    move.w  d7,d1
+.try_x
+    cmp.w   d4,d2
+    beq.b   .objective_reached
+    ; check if enemy is on right of player
+    bcs.b   .enemy_on_the_right
+    ; enemy is on the left of the player
+    ; can it move right?
+    addq.w  #1,d0
+    bra.b   .lateral_test
+.enemy_on_the_right
+    ; can it move left?
+    subq.w  #1,d0
+.lateral_test
+    move.w  d0,d6   ; backup
+    bsr     is_location_legal
+    tst.b   d0
+    beq.b   .cant_move_horizontally ;not really possible in this game
+    ; can move laterally: validate it
+    
+    move.w  d6,ypos(a4)
+    bra.b   .out
+    
+.objective_reached
+    blitz
     rts
+.out
+    rts
+.cant_move_horizontally
+    move.w  #$F00,$DFF180
+    rts
+    
+
 move_hang
     tst.w   power_state_counter
     bne.b   .power
@@ -5975,13 +6132,13 @@ get_dot_rectangles:
 is_location_legal:
     ; make up for center
     ; this is to simulate old behaviour
+    sub.w   #4,d1       
     ;
     ; now get_tile_type is used to get the type of the tile
     ; and 4 is added to y like in rectangle fetch
     ;
     ; get_tile_type has slightly different requirements. But subtracting
     ; 4 to Y before calling it allows to re-use it in here
-    sub.w   #4,d1       
     bsr get_tile_type
     move.b  (a0),d0    ; retrieve value
     rts
@@ -6847,6 +7004,11 @@ bonus_level_lane_select_subcounter:
 bonus_text_screen_countdown
     dc.w    0
 bonus_music_replay_timer
+    dc.w    0
+player_move_index
+    dc.w    0
+thief_move_index
+    dc.w    0
 
 compatible_rectangles
     dc.l    0,0,0,0
@@ -6880,18 +7042,29 @@ previous_direction:
     dc.w    0
 attack_timeout:
     dc.w    0
+
+thief_target_tile_x
+    dc.w    0
+thief_target_tile_y
+    dc.w    0
+thief_standby_timer:
+    dc.w    0
 thief_attack_sound_count_timer:
     dc.w    0
 thief_attacks:
     dc.b    0
 thief_attack_sound_count:
     dc.b    0
-    
 total_number_of_dots:
     dc.b    0
 bonus_cattle_moving:
     dc.b    0
-
+player_move_record
+    dc.b    0
+first_recorded_move
+    dc.b    0
+first_thief_objective
+    dc.b    0
 next_level_is_bonus_level
     dc.b    0
 nb_lives:
@@ -7250,7 +7423,8 @@ jump_height_table_end
 ; attack timeouts
 
 attack_timeout_table
-    dc.w    ORIGINAL_TICKS_PER_SEC*95
+    dc.w    ORIGINAL_TICKS_PER_SEC*2        ; TEMP!!!
+    dc.w    ORIGINAL_TICKS_PER_SEC*100
     dc.w    ORIGINAL_TICKS_PER_SEC*80
     dc.w    ORIGINAL_TICKS_PER_SEC*65
     dc.w    ORIGINAL_TICKS_PER_SEC*55
@@ -7412,7 +7586,9 @@ rollback_dot_table_buffer:
 rollback_dot_table_buffer_end
 pending_paint_rectangle_buffer:
     ds.l    6
-    
+
+player_move_buffer
+    ds.l    NB_RECORDED_MOVES
     even
     
     
