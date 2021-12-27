@@ -93,6 +93,10 @@ Execbase  = 4
 ; if set skips intro, game starts immediately
 DIRECT_GAME_START
 
+; if set, only thief is in play, and attacks immediately
+
+THIEF_AI_TEST
+
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
 
@@ -131,7 +135,7 @@ TF = (T<<TSHIFT)+F
 UT = (U<<TSHIFT)+T
 FT = (F<<TSHIFT)+T
 
-NB_RECORDED_MOVES = 500
+NB_RECORDED_MOVES = 100
 
 BONUS_PENDING = 0
 BONUS_WON = 1
@@ -1118,7 +1122,9 @@ init_level:
 .lower
     add.w   d2,d2
     move.w  (a1,d2.w),nb_enemies_but_thief
-
+    IFD     THIEF_AI_TEST
+    clr.w   nb_enemies_but_thief
+    ENDC
     rts
 
 ; clear planes used for score (score hidden in acts)
@@ -1254,6 +1260,7 @@ init_enemies
     move.l  (a2,d0.w),a2
     
     move.w nb_enemies_but_thief(pc),d7
+    beq.b   .no_other_enemies       ; just for test mode
     subq.w  #1,d7
     moveq.l #0,d0
     moveq.w #1,d1
@@ -1294,6 +1301,7 @@ init_enemies
 .forward_palette
     add.w   #Enemy_SIZEOF,a0
     dbf d7,.igloop
+.no_other_enemies
   
     ; thief
     lea game_palette+56(pc),a3  ; 4 last colors
@@ -1301,7 +1309,7 @@ init_enemies
     beq.b   .no_rustler_2    
     lea alt_sprite_palette+24(pc),a3  ; 4 last colors
 .no_rustler_2
-    lea     enemies,a0
+    lea     enemies(pc),a0
     move.l (a3)+,palette(a0)
     move.l (a3)+,palette+4(a0)
     move.w  #UP,direction(a0)
@@ -1549,6 +1557,7 @@ draw_debug
     bsr write_decimal_number
     move.l  d4,d0
     ;;
+        IFEQ    1
     add.w  #8,d1
     lea .tx(pc),a0
     bsr write_string
@@ -1568,6 +1577,42 @@ draw_debug
     clr.l   d2
     move.w ypos+enemies(pc),d2
     move.w  #3,d3
+    bsr write_decimal_number
+    move.l  d4,d0
+    ENDC
+    ;;
+    ;;
+    add.w  #8,d1
+    lea .pmi(pc),a0
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    clr.l   d2
+    move.w  player_move_index(pc),d2
+    move.w  #4,d3
+    bsr write_decimal_number
+    move.w  #DEBUG_X,d0
+    add.w  #8,d1
+    move.l  d0,d4
+    lea .tmi(pc),a0
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    clr.l   d2
+    move.w thief_move_index(pc),d2
+    move.w  #4,d3
+    bsr write_decimal_number
+    move.l  d4,d0
+    
+    add.w  #8,d1
+    lea .diff(pc),a0
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    clr.l   d2
+    move.w  player_move_index(pc),d2
+    sub.w thief_move_index(pc),d2
+    move.w  #4,d3
     bsr write_decimal_number
     move.l  d4,d0
     ;;
@@ -1621,6 +1666,12 @@ draw_debug
 .ty
         dc.b    "TY ",0
 
+.pmi
+        dc.b    "PMI ",0
+.tmi
+        dc.b    "TMI ",0
+.diff
+        dc.b    "DIFF ",0
 .bottom_rect_string
         dc.b    "R2 20 ",0
 .bonus
@@ -4844,6 +4895,8 @@ move_kill:
 move_chase
     ; record player movements
     bsr    store_player_tile
+
+    LOGPC   100
     
     bsr     animate_enemy
     ; enemy tries to reach objective
@@ -4914,9 +4967,11 @@ move_chase
 .try_x
     ; don't try if not aligned y-wise
 
+    cmp.w   d5,d3
+    bne.b   .keep_going
     cmp.w   d4,d2
     beq.b   .objective_reached
-    
+
     ; check if enemy is on right of target
     bcs.b   .enemy_on_the_right
     ; enemy is on the left of the target
@@ -4969,7 +5024,7 @@ move_chase
     
     move.w  thief_move_index(pc),d0
     cmp.w   d0,d1
-    beq.b   .stuck        ; same tile, last tile, but stuck
+    beq.b   .keep_going        ; same tile, last tile, but stuck
     addq.w   #4,d0
     cmp.w   #NB_RECORDED_MOVES*4,d0
     bne.b   .no_wrap
@@ -4977,35 +5032,34 @@ move_chase
 .no_wrap
     move.w  d0,thief_move_index
     rts
-.stuck
-    move.w  #$F0,$DFF180
-    ; if stuck, continue in the previous direction
+.keep_going
+    ; continue in the previous direction
     ; should be enough to resolve the situation
     move.w  last_thief_direction(pc),d0
-    lea     .stuck_jump_table(pc),a0
+    lea     .keep_going_table(pc),a0
     move.l  (a0,d0.w),a0
     jmp     (a0)
 
-.stuck_jump_table
-    dc.l    .stuck_right
-    dc.l    .stuck_left
-    dc.l    .stuck_up
-    dc.l    .stuck_down
-    dc.l    .stuck_impossible
-.stuck_impossible
+.keep_going_table
+    dc.l    .keep_going_right
+    dc.l    .keep_going_left
+    dc.l    .keep_going_up
+    dc.l    .keep_going_down
+    dc.l    .keep_going_impossible
+.keep_going_impossible
     move.w  #$F00,$DFF180
     rts
     
-.stuck_right
+.keep_going_right
     addq.w   #1,xpos(a4)
     rts
-.stuck_left
+.keep_going_left
     subq.w   #1,xpos(a4)
     rts
-.stuck_up
+.keep_going_up
     subq.w   #1,ypos(a4)
     rts
-.stuck_down
+.keep_going_down
     addq.w   #1,ypos(a4)
     rts
     
@@ -7566,7 +7620,10 @@ jump_height_table_end
 ; attack timeouts
 
 attack_timeout_table
-    dc.w    ORIGINAL_TICKS_PER_SEC*2        ; TEMP!!!
+    IFD THIEF_AI_TEST
+    dc.w    ORIGINAL_TICKS_PER_SEC*2
+    dc.w    ORIGINAL_TICKS_PER_SEC*2
+    ENDC
     dc.w    ORIGINAL_TICKS_PER_SEC*100
     dc.w    ORIGINAL_TICKS_PER_SEC*80
     dc.w    ORIGINAL_TICKS_PER_SEC*65
