@@ -1544,10 +1544,28 @@ draw_debug
     move.l  d4,d0
     ;;
     add.w  #8,d1
-    lea .dots(pc),a0
+    lea .tx(pc),a0
     bsr write_string
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
+    clr.l   d2
+    move.w xpos+enemies(pc),d2
+    move.w  #5,d3
+    bsr write_decimal_number
+    move.w  #DEBUG_X,d0
+    add.w  #8,d1
+    move.l  d0,d4
+    lea .ty(pc),a0
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    clr.l   d2
+    move.w ypos+enemies(pc),d2
+    move.w  #3,d3
+    bsr write_decimal_number
+    move.l  d4,d0
+    ;;
+
     clr.l   d2
     ; ---
     move.w  #DEBUG_X,d0
@@ -1592,8 +1610,11 @@ draw_debug
 .py
         dc.b    "PY ",0
 
-.dots
-        dc.b    "DOTC1 ",0
+.tx
+        dc.b    "TX ",0
+.ty
+        dc.b    "TY ",0
+
 .bottom_rect_string
         dc.b    "R2 20 ",0
 .bonus
@@ -4812,6 +4833,8 @@ move_kill:
     rts
     
 move_chase
+    LOGPC   100
+    
     bsr     animate_enemy
     ; enemy tries to reach objective
     lea player_move_buffer,a2
@@ -4836,7 +4859,7 @@ move_chase
     ; first test y
     cmp.w   d5,d3
     beq.b   .try_x
-    ; check if enemy is below player
+    ; check if enemy is below target
     bcs.b   .enemy_below
     ; enemy is above player
     ; can it move down?
@@ -4867,9 +4890,9 @@ move_chase
 .try_x
     cmp.w   d4,d2
     beq.b   .objective_reached
-    ; check if enemy is on right of player
+    ; check if enemy is on right of target
     bcs.b   .enemy_on_the_right
-    ; enemy is on the left of the player
+    ; enemy is on the left of the target
     ; can it move right?
     addq.w  #1,d0
     bra.b   .lateral_test
@@ -4883,7 +4906,7 @@ move_chase
     beq.b   .cant_move_horizontally ;not really possible in this game
     ; can move laterally: validate it
     
-    move.w  d6,ypos(a4)
+    move.w  d6,xpos(a4)
     bra.b   .out
     
 .objective_reached
