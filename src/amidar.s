@@ -1331,6 +1331,7 @@ init_enemies
     clr.b   thief_attacks
     clr.b   player_move_record
     st.b    first_recorded_move
+    move.w  #DOWN+4,last_thief_direction    ; impossible init value
     
     lea enemies(pc),a0
     ; specific settings
@@ -1413,6 +1414,11 @@ init_player:
     
     move.w  #NB_TILES_PER_LINE*4,xpos(a0)
 	move.w	#Y_MAX,ypos(a0)
+    
+    ;move.w  #0*4,xpos(a0)
+	;move.w	#192,ypos(a0)
+    
+    
 	move.w 	#LEFT,direction(a0)
 	move.w	#LEFT,previous_direction
     clr.w  speed_table_index(a0)
@@ -4649,7 +4655,6 @@ enemy_try_vertical
 
     
 move_standby
-    LOGPC   104
 
     bsr     animate_enemy
     subq.w  #1,thief_standby_timer
@@ -4837,13 +4842,13 @@ move_kill:
     rts
     
 move_chase
-    
     ; record player movements
     bsr    store_player_tile
     
     bsr     animate_enemy
     ; enemy tries to reach objective
     lea player_move_buffer,a2
+    
     move.w  thief_move_index(pc),d0
     ; objective
     move.w  (a2,d0.w),d2
@@ -4863,23 +4868,28 @@ move_chase
     bmi.b   .enemy_on_the_right  ; < 0
     bne.b   .left_test ; > 0
 .normal_vert_first
+
+    ; first test y tile
+    cmp.w   d5,d3
+    beq.b   .try_x
     ; don't try if not aligned x-wise
     and.w   #7,d0
     bne.b   .try_x
 
-    ; first test y
+    ; not y aligned
     cmp.w   d5,d3
-    beq.b   .try_x
     ; check if enemy is below target
     bcs.b   .enemy_below
     ; enemy is above player
     ; can it move down?
+
     move.w  d6,d0
-    addq.w  #1,d1
+    addq.w  #8,d1
     bsr     is_location_legal
     tst.b   d0
     beq.b   .cant_move_vertically
     ; can move up: validate it
+    move.w  #DOWN,last_thief_direction
     move.w  d7,d1
     addq.w  #1,d1
     move.w  d1,ypos(a4)
@@ -4887,11 +4897,12 @@ move_chase
 .enemy_below
     ; can it move up?
     move.w  d6,d0
-    subq.w  #1,d1
+    subq.w  #8,d1
     bsr     is_location_legal
     tst.b   d0
     beq.b   .cant_move_vertically
     ; can move up: validate it
+    move.w  #UP,last_thief_direction
     move.w  d7,d1
     subq.w  #1,d1
     move.w  d1,ypos(a4)
@@ -4920,6 +4931,7 @@ move_chase
     bsr     is_location_legal
     tst.b   d0
     beq.b   .cant_move_right
+    move.w  #RIGHT,last_thief_direction
     bra.b   .can_move_laterally
 .enemy_on_the_right
     move.w  d6,d0       ; restore d0
@@ -4933,6 +4945,7 @@ move_chase
     bsr     is_location_legal
     tst.b   d0
     beq.b   .cant_move_left
+    move.w  #LEFT,last_thief_direction
     ; can move laterally: validate it
 .can_move_laterally
     clr.b   thief_up_move_lock  ; remove lock
@@ -4943,19 +4956,59 @@ move_chase
     ; is that the first objective ?
     tst.b   first_thief_objective
     bne.b   .first_objective
+    
     ; now following player trail
     
+    move.w   player_move_index(pc),d1
+    bne.b   .no_wrap0
+    move.w   #NB_RECORDED_MOVES*4,d1
+.no_wrap0
+    subq.w  #4,d1
+    ; thief move index must not be equal to
+    ; (or ahead of) player move index
+    
     move.w  thief_move_index(pc),d0
-    cmp.w   player_move_index(pc),d0
-    beq.b   .nothing        ; stuck
-    add.w   #4,d0
+    cmp.w   d0,d1
+    beq.b   .stuck        ; same tile, last tile, but stuck
+    addq.w   #4,d0
     cmp.w   #NB_RECORDED_MOVES*4,d0
     bne.b   .no_wrap
     clr.w   d0
 .no_wrap
     move.w  d0,thief_move_index
-.nothing
     rts
+.stuck
+    move.w  #$F0,$DFF180
+    ; if stuck, continue in the previous direction
+    ; should be enough to resolve the situation
+    move.w  last_thief_direction(pc),d0
+    lea     .stuck_jump_table(pc),a0
+    move.l  (a0,d0.w),a0
+    jmp     (a0)
+
+.stuck_jump_table
+    dc.l    .stuck_right
+    dc.l    .stuck_left
+    dc.l    .stuck_up
+    dc.l    .stuck_down
+    dc.l    .stuck_impossible
+.stuck_impossible
+    move.w  #$F00,$DFF180
+    rts
+    
+.stuck_right
+    addq.w   #1,xpos(a4)
+    rts
+.stuck_left
+    subq.w   #1,xpos(a4)
+    rts
+.stuck_up
+    subq.w   #1,ypos(a4)
+    rts
+.stuck_down
+    addq.w   #1,ypos(a4)
+    rts
+    
     
 .first_objective:
     ; pause again
@@ -7129,6 +7182,8 @@ previous_direction:
 attack_timeout:
     dc.w    0
 
+last_thief_direction
+    dc.w    0
 thief_target_tile_x
     dc.w    0
 thief_target_tile_y
