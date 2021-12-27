@@ -4597,7 +4597,7 @@ enemy_try_horizontal
     
 enemy_try_vertical
     move.w  d2,d0
-    ; don't try if not aligned y-wise
+    ; don't try if not aligned x-wise
     and.w   #7,d0
     bne.b   .no_vertical
     move.w  d2,d0
@@ -4849,7 +4849,6 @@ move_chase
     move.w  (a2,d0.w),d2
     move.w  2(a2,d0.w),d3
 
-    
     ; enemy position
     move.w  (xpos,a4),d0
     move.w  d0,d4
@@ -4864,6 +4863,10 @@ move_chase
     bmi.b   .enemy_on_the_right  ; < 0
     bne.b   .left_test ; > 0
 .normal_vert_first
+    ; don't try if not aligned x-wise
+    and.w   #7,d0
+    bne.b   .try_x
+
     ; first test y
     cmp.w   d5,d3
     beq.b   .try_x
@@ -4871,6 +4874,7 @@ move_chase
     bcs.b   .enemy_below
     ; enemy is above player
     ; can it move down?
+    move.w  d6,d0
     addq.w  #1,d1
     bsr     is_location_legal
     tst.b   d0
@@ -4882,6 +4886,7 @@ move_chase
     bra.b   .out
 .enemy_below
     ; can it move up?
+    move.w  d6,d0
     subq.w  #1,d1
     bsr     is_location_legal
     tst.b   d0
@@ -4896,23 +4901,35 @@ move_chase
     move.w  d6,d0
     move.w  d7,d1
 .try_x
+    ; don't try if not aligned y-wise
+
     cmp.w   d4,d2
     beq.b   .objective_reached
+    
     ; check if enemy is on right of target
     bcs.b   .enemy_on_the_right
     ; enemy is on the left of the target
     ; can it move right?
 .left_test
+    move.w  d6,d0       ; restore d0
+    and.w   #7,d1
+    bne.b   .cant_move_right
     addq.w  #1,d0
     move.w  d0,d6   ; backup
+    move.w  d7,d1   ; restore d1
     bsr     is_location_legal
     tst.b   d0
     beq.b   .cant_move_right
     bra.b   .can_move_laterally
 .enemy_on_the_right
+    move.w  d6,d0       ; restore d0
+    and.w   #7,d1
+    bne.b   .cant_move_left
+    
     ; can it move left?
     subq.w  #1,d0
     move.w  d0,d6   ; backup
+    move.w  d7,d1   ; restore d1
     bsr     is_location_legal
     tst.b   d0
     beq.b   .cant_move_left
