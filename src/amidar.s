@@ -4036,6 +4036,7 @@ COLLISION_SHIFTING_PRECISION = 3
 
 set_thief_attack_mode
     st.b    thief_attacks
+    clr.b   thief_up_move_lock
     move.b  #4,thief_attack_sound_count
     move.w  #1,thief_attack_sound_count_timer
     move.w  #ORIGINAL_TICKS_PER_SEC,thief_standby_timer
@@ -4648,10 +4649,13 @@ enemy_try_vertical
 
     
 move_standby
+    LOGPC   104
+
     bsr     animate_enemy
     subq.w  #1,thief_standby_timer
     bne.b   .out
 
+    move.w  #MODE_CHASE,mode(a4)    ; attack player!
     ; timeout reached. If player move recorder
     ; isn't started, start it
     tst.b   player_move_record
@@ -4664,11 +4668,11 @@ move_standby
     clr.w   player_move_index
     bsr     store_player_tile
     
-    move.w  #MODE_CHASE,mode(a4)    ; attack player!
 .out
     rts
 .record_started
-    
+    ; now record player moves
+    bsr    store_player_tile
     rts
 
 ; store player tile only if the same as previously
@@ -4833,7 +4837,9 @@ move_kill:
     rts
     
 move_chase
-    LOGPC   100
+    
+    ; record player movements
+    bsr    store_player_tile
     
     bsr     animate_enemy
     ; enemy tries to reach objective
@@ -4842,8 +4848,7 @@ move_chase
     ; objective
     move.w  (a2,d0.w),d2
     move.w  2(a2,d0.w),d3
-    ;blitz
-    ;nop
+
     
     ; enemy position
     move.w  (xpos,a4),d0
@@ -4855,7 +4860,10 @@ move_chase
 
     move.w  d0,d6   ; save d0
     move.w  d1,d7   ; save d1
-
+    tst.b   thief_up_move_lock
+    bmi.b   .enemy_on_the_right  ; < 0
+    bne.b   .left_test ; > 0
+.normal_vert_first
     ; first test y
     cmp.w   d5,d3
     beq.b   .try_x
@@ -4872,7 +4880,7 @@ move_chase
     addq.w  #1,d1
     move.w  d1,ypos(a4)
     bra.b   .out
-.enemy_below    
+.enemy_below
     ; can it move up?
     subq.w  #1,d1
     bsr     is_location_legal
@@ -4894,28 +4902,66 @@ move_chase
     bcs.b   .enemy_on_the_right
     ; enemy is on the left of the target
     ; can it move right?
+.left_test
     addq.w  #1,d0
-    bra.b   .lateral_test
-.enemy_on_the_right
-    ; can it move left?
-    subq.w  #1,d0
-.lateral_test
     move.w  d0,d6   ; backup
     bsr     is_location_legal
     tst.b   d0
-    beq.b   .cant_move_horizontally ;not really possible in this game
+    beq.b   .cant_move_right
+    bra.b   .can_move_laterally
+.enemy_on_the_right
+    ; can it move left?
+    subq.w  #1,d0
+    move.w  d0,d6   ; backup
+    bsr     is_location_legal
+    tst.b   d0
+    beq.b   .cant_move_left
     ; can move laterally: validate it
-    
+.can_move_laterally
+    clr.b   thief_up_move_lock  ; remove lock
     move.w  d6,xpos(a4)
     bra.b   .out
     
 .objective_reached
-    blitz
+    ; is that the first objective ?
+    tst.b   first_thief_objective
+    bne.b   .first_objective
+    ; now following player trail
+    
+    move.w  thief_move_index(pc),d0
+    cmp.w   player_move_index(pc),d0
+    beq.b   .nothing        ; stuck
+    add.w   #4,d0
+    cmp.w   #NB_RECORDED_MOVES*4,d0
+    bne.b   .no_wrap
+    clr.w   d0
+.no_wrap
+    move.w  d0,thief_move_index
+.nothing
+    rts
+    
+.first_objective:
+    ; pause again
+    clr.b   first_thief_objective
+    move.w  #MODE_STANDBY,mode(a4)
+    move.w  #ORIGINAL_TICKS_PER_SEC,thief_standby_timer
+
     rts
 .out
     rts
-.cant_move_horizontally
-    move.w  #$F00,$DFF180
+.cant_move_right
+    ; can happen at start when thief tries to reach first objective
+    ; same y but no direct path: move up (always possible)
+    ; and lock until can move in the required lateral direction
+    subq.w   #1,ypos(a4)
+    move.b  #1,thief_up_move_lock
+    rts
+.cant_move_left
+    ; can happen at start when thief tries to reach first objective
+    ; same y but no direct path: move up (always possible)
+    ; and lock until can move in the required lateral direction
+    subq.w   #1,ypos(a4)
+    st.b    thief_up_move_lock
     rts
     
 
@@ -7075,6 +7121,8 @@ thief_standby_timer:
 thief_attack_sound_count_timer:
     dc.w    0
 thief_attacks:
+    dc.b    0
+thief_up_move_lock:
     dc.b    0
 thief_attack_sound_count:
     dc.b    0
