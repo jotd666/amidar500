@@ -2025,6 +2025,7 @@ PLAYER_ONE_Y = 102-14
     rts
 
 stop_sounds
+    move.w  #$0F0,$DFF180
     bsr stop_paint_sound
     lea _custom,a6
     clr.b   music_playing
@@ -3741,7 +3742,7 @@ vbl_counter:
     dc.w    0
 
 
-SONG_1_LENGTH = ORIGINAL_TICKS_PER_SEC*17+ORIGINAL_TICKS_PER_SEC/2-2
+SONG_1_LENGTH = ORIGINAL_TICKS_PER_SEC*17+ORIGINAL_TICKS_PER_SEC/2+2
 SONG_2_LENGTH = ORIGINAL_TICKS_PER_SEC*14+10
 BONUS_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*8
 POWER_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*4+ORIGINAL_TICKS_PER_SEC/2-6
@@ -3975,6 +3976,8 @@ update_all
     tst.w  level_number
     bne.b   .no_delay
     ; first level: play start music
+    clr.b   .intro_music_played
+    
     moveq.l #6,d0
     bsr     play_music
     move.w  #ORIGINAL_TICKS_PER_SEC*5,d0
@@ -4004,6 +4007,7 @@ update_all
     subq.w  #1,d0    ; starts after a few seconds
     bne.b   .no_start_music
 .normal_music
+    clr.w   .start_music_countdown
     tst.b   rustler_level
     beq.b   .copier_level
     ; ruslter level
@@ -4019,6 +4023,9 @@ update_all
     move.w  d0,.start_music_countdown
     cmp.w   #ORIGINAL_TICKS_PER_SEC,d0
     bne.b   .music_out
+    tst.b   .intro_music_played
+    bne.b   .music_out
+    st.b   .intro_music_played
     bsr stop_sounds
     bra.b   .music_out
 .power_music
@@ -4085,7 +4092,9 @@ BLINK_BASE_TIME = POWER_SONG_LENGTH+POWER_SONG_LENGTH/2
 
     rts
 
-   
+.intro_music_played
+    dc.b    0
+    even
 .start_music_countdown
     dc.w    0
 

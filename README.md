@@ -36,17 +36,17 @@ ISSUES:
 - level 1/2: normal music loop is wrong
 - collision: sometimes player goes through enemy
 - intro: wrong start move, maze check rework probably caused that
-- music loops wrong ... even in bonus mode sometimes
 - level 3: music doesn't start immediately
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
 - can paint corner with no painted neighbours
 - crash enemy falling: LINEA bad jump table WTF???
+- attacking thief loses ground when attacking. Speed should be 1:1
+- thief attack pause length is different depending of the time
+  it took to reach the first target tile
 
 TODO:
 
-- gameover with score: go to score table directly with score flashing
-- thief attack pauses, then more or less random, then follow
 - enemy speed increasing, level 1-2: 20/20 level 3-4: 20/19 levl 5-6: 20/18
   level 8: 20/16 level 9-13: 20/15, at level 15 reaches 20/13 speed (max)
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
