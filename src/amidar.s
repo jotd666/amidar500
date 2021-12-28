@@ -95,7 +95,7 @@ DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
-THIEF_AI_TEST
+;THIEF_AI_TEST
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
@@ -152,6 +152,7 @@ MODE_JUMP = 7<<2
 MODE_KILL = 8<<2
 MODE_KILLED = 9<<2
 MODE_CRASH = 10<<2      ; enemy just hit the ground after falling
+MODE_LAST_ITEM = 11<<2
 
 ; --------------- end debug/adjustable variables
 
@@ -897,8 +898,11 @@ f_painted_to_temp
     rts
     
 f_unknown_transition
+    IFD     DEBUG_MODE
+
     blitz
     illegal
+    ENDC
     rts
 
 ; < A0: zone to paint temporarily
@@ -1709,6 +1713,13 @@ draw_enemies:
     ;;move.w  #$00ff,_custom+color+32+8+2
 
     move.w  mode(a0),d3 ; normal/chase/fright/fall..
+    IFD     DEBUG_MODE
+    cmp.w   #MODE_LAST_ITEM,d3
+    bcs.b   .in_range
+    blitz
+    illegal
+.in_range
+    ENDC
     lea     palette(a0),a2      ; normal ghost colors
     lea     .jump_table(pc),a1
     move.l  (a1,d3.w),a1
@@ -2025,7 +2036,6 @@ PLAYER_ONE_Y = 102-14
     rts
 
 stop_sounds
-    move.w  #$0F0,$DFF180
     bsr stop_paint_sound
     lea _custom,a6
     clr.b   music_playing
@@ -3742,10 +3752,10 @@ vbl_counter:
     dc.w    0
 
 
-SONG_1_LENGTH = ORIGINAL_TICKS_PER_SEC*17+ORIGINAL_TICKS_PER_SEC/2+2
-SONG_2_LENGTH = ORIGINAL_TICKS_PER_SEC*14+10
+SONG_1_LENGTH = ORIGINAL_TICKS_PER_SEC*17+ORIGINAL_TICKS_PER_SEC/2+6
+SONG_2_LENGTH = ORIGINAL_TICKS_PER_SEC*13+14
 BONUS_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*8
-POWER_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*4+ORIGINAL_TICKS_PER_SEC/2-6
+POWER_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*4+ORIGINAL_TICKS_PER_SEC/2-4
 
 POWER_STATE_LENGTH = POWER_SONG_LENGTH*2+POWER_SONG_LENGTH/4
 
@@ -3972,6 +3982,7 @@ update_all
 
     tst.l   state_timer
     bne.b   .no_first_tick
+    st.b   .intro_music_played
     moveq.w   #1,d0
     tst.w  level_number
     bne.b   .no_delay
@@ -4846,9 +4857,14 @@ move_killed
     ; now get x coord and see if it's close to vertical lanes    
     move.w  xpos(a4),d0
     lea hangfall_table(pc),a0
+    move.w  d0,$110     ; TEMP
     add.w   d0,d0
     move.w  (a0,d0.w),d0
     move.w  d0,mode(a4)
+    cmp.w   #MODE_LAST_ITEM,d0
+    bcs.b   .ok
+    blitz 
+.ok
     cmp.w   #MODE_FALL,d0
     bne.b   .no_fall
     lea     enemy_falling_sound,a0
@@ -4872,6 +4888,7 @@ state_transition_table
     ENDR
     
 ; close to vertical lines: fall, else hang
+; add margin as last coord is 200 and would read outside bounds
 hangfall_table:
     REPT    5
     dc.w	MODE_FALL,MODE_FALL,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG
@@ -4880,6 +4897,7 @@ hangfall_table:
     dc.w    MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG,MODE_HANG
     dc.w    MODE_HANG,MODE_HANG,MODE_FALL,MODE_FALL
     ENDR
+    dc.w    MODE_FALL,MODE_FALL
     
 move_kill:
     ; animating the enemy killing the player
@@ -5525,11 +5543,13 @@ update_player
     or.b  d1,d0
     move.b  d1,previous_tile_type
     
+    IFD     DEBUG_MODE
     cmp.w   #16,d0
     bcs.b   .limitsok
     blitz
     illegal
 .limitsok
+    ENDC
     ; transitions
     add.w   d0,d0
     add.w   d0,d0
@@ -5907,11 +5927,13 @@ store_rectangle_rollback_address
     move.l  a1,-(a7)
     move.l  rollback_rectangle_pointer(pc),a1
     move.l  a0,(a1)+
+    IFD     DEBUG_MODE
     cmp.l   #rollback_rectangle_buffer_end,a1
     bcs.b   .ok
     blitz
     illegal
 .ok
+    ENDC
     move.l  a1,rollback_rectangle_pointer
     move.l  (a7)+,a1
     rts

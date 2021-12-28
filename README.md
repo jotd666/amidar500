@@ -33,23 +33,25 @@ ISSUES:
 - turn correction not perfect, sometimes character blocks or goes the wrong way
 - level 2: thief palette is wrong (fright mode is green)
 - level 2: fall frames don't match (match level 1)
-- level 1/2: normal music loop is wrong
+- level 2: normal music loop is wrong
+- bonus level: music loop too long sometimes wtf
 - collision: sometimes player goes through enemy
 - intro: wrong start move, maze check rework probably caused that
-- level 3: music doesn't start immediately
+- level 2,3...: music doesn't start immediately
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
 - can paint corner with no painted neighbours
-- crash enemy falling: LINEA bad jump table WTF???
 - attacking thief loses ground when attacking. Speed should be 1:1
-- thief attack pause length is different depending of the time
-  it took to reach the first target tile
+- attack timeout is not accurate: level 1: too early
+- first attack target blocks when enemy above player
 
 TODO:
 
 - enemy speed increasing, level 1-2: 20/20 level 3-4: 20/19 levl 5-6: 20/18
   level 8: 20/16 level 9-13: 20/15, at level 15 reaches 20/13 speed (max)
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
+- thief attack pause length is different depending of the time
+  it took to reach the first target tile
 
 
 CREDITS:
