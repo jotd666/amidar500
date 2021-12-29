@@ -50,7 +50,6 @@ INTERRUPTS_ON_MASK = $E038
     UWORD   v_speed
 	UWORD	direction   ; sprite orientation
     UWORD   frame
-    UWORD   speed_table_index
     UWORD   turn_lock
 	LABEL	Character_SIZEOF
 
@@ -65,6 +64,7 @@ INTERRUPTS_ON_MASK = $E038
     APTR     frame_table
     APTR     copperlist_address
     APTR     color_register
+    UWORD   speed_table_index
     UWORD   previous_xpos
     UWORD   previous_ypos
     UWORD   score_frame
@@ -95,7 +95,7 @@ DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
-THIEF_AI_TEST
+;THIEF_AI_TEST
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
@@ -1111,8 +1111,14 @@ init_level:
     
 
     move.b   #4,nb_special_rectangles
-    ; speed table
+    ; speed table, speed increasing every 2 levels up to level 15
     lea speed_table(pc),a1
+    move.w  level_number(pc),d2
+    lsr.w   #1,d2   ; divide
+    cmp.w   #6,d2
+    bcs.b   .no_max_speed
+    move.w  #6,d2
+.no_max_speed
     add.w   d2,d2
     add.w   d2,d2
     move.l  (a1,d2.w),a1    ; global speed table
@@ -1560,7 +1566,7 @@ draw_debug
     bsr write_decimal_number
     move.l  d4,d0
     ;;
-        IFEQ    1
+        IFEQ    0
     add.w  #8,d1
     lea .tx(pc),a0
     bsr write_string
@@ -4513,13 +4519,18 @@ move_jump
 ; todo: loop according to instant speed, ATM speed=1
 move_normal
     bsr animate_enemy
+    LOGPC   100
+    bsr get_next_speed_index
+    cmp.b   #1,d0
+    beq.b   .one_iteration      ; do it once
+    bsr     .one_iteration      ; do it twice
+.one_iteration
     
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
     move.w   h_speed(a4),d4
     move.w   v_speed(a4),d5
 
-    ;;BREAKIF $A7,$58
     move.w  direction(a4),d6
     cmp.w   #UP,d6
     bcc.b   .hfirst ; UP or DOWN
@@ -4723,6 +4734,19 @@ enemy_try_vertical
     move.w  d5,v_speed(a4)
     bra.b   .no_vertical
 
+get_next_speed_index
+    move.w  speed_table_index(a4),d0
+    move.w  d0,d1
+    add.w   #1,d0
+    cmp.w   #20,d0
+    bne.b   .no_wrap
+    clr.w   d0
+.no_wrap
+    move.w  d0,speed_table_index(a4)
+    
+    move.l  global_speed_table(pc),a0
+    move.b  (a0,d1.w),d0
+    rts    
     
 move_standby
 
@@ -4922,7 +4946,7 @@ move_kill:
     move.w  d0,enemy_kill_timer
     rts
     
-move_chase
+move_chase    
     ; record player movements
     bsr    store_player_tile
 
@@ -4930,6 +4954,7 @@ move_chase
     
     bsr     animate_enemy
     ; enemy tries to reach objective
+.loop
     lea player_move_buffer,a2
     
     move.w  thief_move_index(pc),d0
@@ -5000,8 +5025,15 @@ move_chase
     cmp.w   d5,d3
     bne.b   .keep_going
     cmp.w   d4,d2
-    beq.b   .objective_reached
-
+    bne.b   .objective_not_reached
+    bsr.b   .objective_reached
+    tst.b   d0
+    bne.b   .loop       ; objective changed: retry
+    bra.b   .out        ; objective in the same horizon as player: quit
+    ; objective reached, but don't lose 1 move: keep trying to move
+.objective_not_reached
+    move.w  d7,d1   ; restore D1
+    cmp.w   d4,d2
     ; check if enemy is on right of target
     bcs.b   .enemy_on_the_right
     ; enemy is on the left of the target
@@ -5037,6 +5069,8 @@ move_chase
     move.w  d6,xpos(a4)
     bra.b   .out
     
+; < D0: 0 if reached player tile and keep going "blindly"
+;       not 0: normal
 .objective_reached
     ; is that the first objective ?
     tst.b   first_thief_objective
@@ -5061,6 +5095,7 @@ move_chase
     clr.w   d0
 .no_wrap
     move.w  d0,thief_move_index
+    st.b    d0
     rts
 .keep_going
     ; continue in the previous direction
@@ -5068,8 +5103,11 @@ move_chase
     move.w  direction(a4),d0
     lea     .keep_going_table(pc),a0
     move.l  (a0,d0.w),a0
-    jmp     (a0)
-
+    jsr     (a0)
+    clr.w   d0
+    rts
+    
+    
 .keep_going_table
     dc.l    .keep_going_right
     dc.l    .keep_going_left
@@ -7673,56 +7711,86 @@ attack_timeout_table
     dc.w    ORIGINAL_TICKS_PER_SEC*1
 
 
+; enemy speed increasing, level 1-2: 20/20 level 3-4: 20/19 levl 5-6: 20/18
+;  level 8: 20/16 level 9-13: 20/15, at level 15 reaches 20/13 speed (max)
+
  ; speed table at 60 Hz
-speed_table:  ; lifted from https://github.com/shaunlebron/pacman/blob/master/src/Actor.js
-    dc.l    speeds_level1,speeds_level2_4,speeds_level2_4,speeds_level2_4
-    dc.l    speeds_level5_20,speeds_level5_20,speeds_level5_20,speeds_level5_20,speeds_level5_20,speeds_level5_20
-    dc.l    speeds_level5_20,speeds_level5_20,speeds_level5_20,speeds_level5_20,speeds_level5_20,speeds_level5_20
-    dc.l    speeds_level5_20,speeds_level5_20,speeds_level5_20,speeds_level5_20,speeds_level21
+speed_table:
+    dc.l    speed_level_12,speed_level_34,speed_level_56,speed_level_78
+    dc.l    speed_level_913,speed_level_913,speed_level_15
     
-speeds_level1:
-                                            ; LEVEL 1
-    dc.b   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ; pac-man (normal)
-    dc.b   0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ; enemies (normal)
-    dc.b   1,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1 ; pac-man (fright)
-    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; enemies (fright)
-    dc.b   0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1 ; enemies (tunnel)
-    dc.b   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 ; elroy 1
-    dc.b   1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1 ; elroy 2
-speeds_level2_4:
-                                           ; LEVELS 2-4
-    dc.b   1,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1 ; pac-man (normal)
-    dc.b   1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1 ; enemies (normal)
-    dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; pac-man (fright)
-    dc.b   0,1,1,0,1,1,0,1,1,0,1,1,0,1,1,1 ; enemies (fright)
-    dc.b   0,1,1,0,1,0,1,0,1,1,0,1,0,1,0,1 ; enemies (tunnel)
-    dc.b   1,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1 ; elroy 1
-    dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; elroy 2
-                                           ;
-speeds_level5_20                                          
-                                           ; LEVELS 5-20
-    dc.b   1,1,2,1,1,1,2,1,1,1,2,1,1,1,2,1 ; pac-man (normal)
-    dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; enemies (normal)
-    dc.b   1,1,2,1,1,1,2,1,1,1,2,1,1,1,2,1 ; pac-man (fright) (N/A for levels 17, 19 & 20)
-    dc.b   0,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1 ; enemies (fright)  (N/A for levels 17, 19 & 20)
-    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; enemies (tunnel)
-    dc.b   1,1,2,1,1,1,2,1,1,1,2,1,1,1,2,1 ; elroy 1
-    dc.b   1,1,2,1,1,2,1,1,2,1,1,2,1,1,2,1 ; elroy 2
-                                           ;
-speeds_level21                                          
-                                           ; LEVELS 21+
-    dc.b   1,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1 ; pac-man (normal)
-    dc.b   1,1,1,1,2,1,1,1,1,2,1,1,1,1,2,1 ; enemies (normal)
-    dc.b   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ; pac-man (fright) N/A
-    dc.b   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ; enemies (fright)  N/A
-    dc.b   0,1,1,0,1,1,0,1,0,1,1,0,1,1,0,1 ; enemies (tunnel)
-    dc.b   1,1,2,1,1,1,2,1,1,1,2,1,1,1,2,1 ; elroy 1
-    dc.b   1,1,2,1,1,2,1,1,2,1,1,2,1,1,2,1; elroy 2
+speed_level_12:
+    REPT    20
+    dc.b   1
+    ENDR
+    
+speed_level_34:
+    REPT    10
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    9
+    dc.b   1
+    ENDR
+    
+speed_level_56:
+    REPT    6
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    6
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    6
+    dc.b   1
+    ENDR
+    
+speed_level_78:
+    REPT    4
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    4
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    4
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    4
+    dc.b   1
+    ENDR
+    
+speed_level_913:
+    REPT    3
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    4
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    3
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    4
+    dc.b   1
+    ENDR
+    dc.b    2
+    REPT    3
+    dc.b   1
+    ENDR
 
+speed_level_15:     ; x1.5 speed!!!
+    REPT    10
+    dc.b    1
+    dc.b    2
+    ENDR
 
-powerdots
-    ds.l    4
-
+    
 enemy_start_position_table
     dc.l    .level1
     dc.l    .level2

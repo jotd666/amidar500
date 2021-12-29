@@ -14,7 +14,7 @@ REQUIRES:
 FEATURES:
 
 - original visual & sounds
-- faithful enemy behaviour & speed
+- faithful enemy behaviour & speed & increasing difficulty
 - 50 frames per second (PAL) even on a 68000 A500
 - all levels & bonus levels
 - original intro
@@ -31,24 +31,26 @@ CONTROLS:
 ISSUES:
 
 - turn correction not perfect, sometimes character blocks or goes the wrong way
+- collision: sometimes player goes through enemy
 - level 2,3...: music doesn't start immediately
 - level 1: thief palette is wrong: red & white are inverted
 - level 2: fright mode is green
 - level 2: fall frames don't match (match level 1)
 - level 2: normal music loop is wrong
-- bonus level: music loop too long only sometimes wtf
-- collision: sometimes player goes through enemy
+- more than 4 normal amidars => wrong palette (blue)
+- 6 normal amidars (level 15) => no more tracer!!!
+
+MINOR ISSUES
+
+- bonus level: music loop too long only sometimes
 - intro: wrong start move, maze check rework probably caused that
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
 - can paint corner with no painted neighbours
-- attacking thief loses ground when attacking. Speed should be 1:1
 - attack timeout is not accurate: level 1: too early
 
 TODO:
 
-- enemy speed increasing, level 1-2: 20/20 level 3-4: 20/19 levl 5-6: 20/18
-  level 8: 20/16 level 9-13: 20/15, at level 15 reaches 20/13 speed (max)
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
 - thief attack pause length is different depending of the time
   it took to reach the first target tile
