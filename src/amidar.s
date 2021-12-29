@@ -115,7 +115,7 @@ EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
 NB_HIGH_SCORES = 10
 
-START_LEVEL = 1
+START_LEVEL = 2
 
 N = 0;  if no maze, 
 U = 1;                  if has dot (unpainted)
@@ -1043,7 +1043,7 @@ clear_maze
 clear_maze_plane
     movem.l d0-d1/a0-a1,-(a7)
     add.w   #NB_BYTES_PER_LINE*4,a1
-    move.w #MAZE_HEIGHT+7,d0
+    move.w #MAZE_HEIGHT+7+6,d0
 .cp
     move.w  #NB_BYTES_PER_MAZE_LINE/4,d1
     move.l  a1,a0
@@ -1072,7 +1072,6 @@ init_new_play:
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
-    clr.w   completed_music_timer
     move.l  #EXTRA_LIFE_SCORE,score_to_track
     move.w  #START_LEVEL-1,level_number
     clr.b   bonus_sprites
@@ -1082,7 +1081,9 @@ init_new_play:
     rts
     
 init_level: 
+    clr.w   completed_music_timer
     clr.b   nb_rectangles
+	clr.l	state_timer
     ; sets initial number of dots
 
     clr.b    rustler_level
@@ -4008,6 +4009,10 @@ update_all
     bsr update_player
     
     IFND    NO_ENEMIES
+    tst.w   player_killed_timer
+    bpl.b   .skip_cc     ; player killed, no collisions	
+    bsr check_collisions
+.skip_cc
     bsr update_enemies
     
     tst.w   player_killed_timer
@@ -4162,6 +4167,10 @@ check_collisions
     move.w  #MODE_KILL,mode(a4)
     move.w  #PLAYER_KILL_TIMER,player_killed_timer
     clr.w   enemy_kill_timer
+	tst.b rustler_level
+	beq.b	.no_rollback
+	bsr	rollback_paint
+.no_rollback
     bsr stop_sounds
     lea     player_killed_sound(pc),a0
     bsr     play_fx
