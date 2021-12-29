@@ -95,7 +95,7 @@ DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
-;THIEF_AI_TEST
+THIEF_AI_TEST
 
 ; test bonus screen 
 ;BONUS_SCREEN_TEST
@@ -1343,7 +1343,6 @@ init_enemies
     clr.b   thief_attacks
     clr.b   player_move_record
     st.b    first_recorded_move
-    move.w  #DOWN+4,last_thief_direction    ; impossible init value
     
     lea enemies(pc),a0
     ; specific settings
@@ -4831,16 +4830,20 @@ move_border_patrol
     bpl.b   .right
     ; left
     move.l  #$FFFF0000,h_speed(a4)   ; change to left
+    move.w  #LEFT,direction(a4)
     bra.b   .retry
 .right
     move.l  #$00010000,h_speed(a4)   ; change to right
+    move.w  #RIGHT,direction(a4)
     bra.b   .retry
 
 .down
     move.l  #1,h_speed(a4)   ; change to down
+    move.w  #DOWN,direction(a4)
     bra.b   .retry
 .up
     move.l  #$0000FFFF,h_speed(a4)   ; change to up
+    move.w  #UP,direction(a4)
     bra.b   .retry
 
 move_fright
@@ -4969,7 +4972,7 @@ move_chase
     tst.b   d0
     beq.b   .cant_move_vertically
     ; can move up: validate it
-    move.w  #DOWN,last_thief_direction
+    move.w  #DOWN,direction(a4)
     move.w  d7,d1
     addq.w  #1,d1
     move.w  d1,ypos(a4)
@@ -4982,7 +4985,7 @@ move_chase
     tst.b   d0
     beq.b   .cant_move_vertically
     ; can move up: validate it
-    move.w  #UP,last_thief_direction
+    move.w  #UP,direction(a4)
     move.w  d7,d1
     subq.w  #1,d1
     move.w  d1,ypos(a4)
@@ -5013,7 +5016,7 @@ move_chase
     bsr     is_location_legal
     tst.b   d0
     beq.b   .cant_move_right
-    move.w  #RIGHT,last_thief_direction
+    move.w  #RIGHT,direction(a4)
     bra.b   .can_move_laterally
 .enemy_on_the_right
     move.w  d6,d0       ; restore d0
@@ -5027,7 +5030,7 @@ move_chase
     bsr     is_location_legal
     tst.b   d0
     beq.b   .cant_move_left
-    move.w  #LEFT,last_thief_direction
+    move.w  #LEFT,direction(a4)
     ; can move laterally: validate it
 .can_move_laterally
     clr.b   thief_up_move_lock  ; remove lock
@@ -5062,7 +5065,7 @@ move_chase
 .keep_going
     ; continue in the previous direction
     ; should be enough to resolve the situation
-    move.w  last_thief_direction(pc),d0
+    move.w  direction(a4),d0
     lea     .keep_going_table(pc),a0
     move.l  (a0,d0.w),a0
     jmp     (a0)
@@ -7267,8 +7270,7 @@ previous_direction:
 attack_timeout:
     dc.w    0
 
-last_thief_direction
-    dc.w    0
+
 thief_target_tile_x
     dc.w    0
 thief_target_tile_y
@@ -7652,7 +7654,7 @@ jump_height_table_end
 
 attack_timeout_table
     IFD THIEF_AI_TEST
-    dc.w    ORIGINAL_TICKS_PER_SEC*2
+    dc.w    ORIGINAL_TICKS_PER_SEC*10
     dc.w    ORIGINAL_TICKS_PER_SEC*2
     ENDC
     dc.w    ORIGINAL_TICKS_PER_SEC*100

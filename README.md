@@ -31,19 +31,19 @@ CONTROLS:
 ISSUES:
 
 - turn correction not perfect, sometimes character blocks or goes the wrong way
-- level 2: thief palette is wrong (fright mode is green)
+- level 2,3...: music doesn't start immediately
+- level 1: thief palette is wrong: red & white are inverted
+- level 2: fright mode is green
 - level 2: fall frames don't match (match level 1)
 - level 2: normal music loop is wrong
-- bonus level: music loop too long sometimes wtf
+- bonus level: music loop too long only sometimes wtf
 - collision: sometimes player goes through enemy
 - intro: wrong start move, maze check rework probably caused that
-- level 2,3...: music doesn't start immediately
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
 - can paint corner with no painted neighbours
 - attacking thief loses ground when attacking. Speed should be 1:1
 - attack timeout is not accurate: level 1: too early
-- first attack target blocks when enemy above player
 
 TODO:
 
