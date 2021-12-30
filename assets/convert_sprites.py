@@ -270,7 +270,7 @@ game_palette_level_1_sprites = """
     {0}
     {0}
     {0}
-    dc.w    $000,$00ff,$0fff,$0f00  ; thief guard
+    dc.w    $000,$00ff,$0f00,$0fff  ; thief guard
 
 """.format("dc.w    $000,$0F0,$F91,$FF0     ; guard")
 
@@ -361,6 +361,7 @@ def process_tiles():
                     sprite_palette_offset = 16+(sprite_number//2)*4
                     sprite_palette = game_palette[sprite_palette_offset:sprite_palette_offset+4]
                 bin_base = "../{}/{}_{}.bin".format(sprites_dir,name,i) if nb_frames != 1 else "../{}/{}.bin".format(sprites_dir,name)
+                print("processing sprite {}...".format(name))
                 bitplanelib.palette_image2sprite(cropped_img,bin_base,
                     sprite_palette,palette_precision_mask=0xF0)
             else:
@@ -379,7 +380,7 @@ def process_tiles():
 
                 namei = "{}_{}".format(name,i) if nb_frames!=1 else name
 
-                print(name)
+                print("processing bob {}...".format(name))
                 bitplanelib.palette_image2raw(img,"../{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,
                 palette_precision_mask=0xF0,generate_mask=generate_mask)
 

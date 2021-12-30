@@ -115,7 +115,7 @@ EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
 NB_HIGH_SCORES = 10
 
-START_LEVEL = 1
+START_LEVEL = 2
 
 N = 0;  if no maze, 
 U = 1;                  if has dot (unpainted)
@@ -7418,7 +7418,7 @@ loop_array:
 police_fright_palette
     dc.w    $0000,$0f00,$00F0,$0ff0
 cattle_fright_palette
-    dc.w    $0000,$0f0,$f91,$0f00
+    dc.w    $0000,$F91,$0F0,$0c0f
 police_fright_blink_palette
     dc.w    $0000,$0fFF,$0F00,$f91
 cattle_fright_blink_palette
@@ -8057,6 +8057,8 @@ police\1_hang_end_frame_table:
 police\1_kill_frame_table:
     dc.l    police\1_kill_0
     dc.l    police\1_kill_1
+    dc.l    police\1_kill_0
+    dc.l    police\1_kill_1
 police\1_kill_end_frame_table:
 police\1_fall_frame_table:
     dc.l    police\1_fall_0
@@ -8175,6 +8177,12 @@ cattle\1_hang_frame_table:
     dc.l    cattle\1_hang_0
     dc.l    cattle\1_hang_1
 cattle\1_hang_end_frame_table:
+cattle\1_kill_frame_table:
+    dc.l    cattle\1_kill_0
+    dc.l    cattle\1_kill_1
+    dc.l    cattle\1_kill_2
+    dc.l    cattle\1_kill_3
+cattle\1_kill_end_frame_table:
 cattle\1_fall_frame_table:
     dc.l    cattle\1_fall_0
     dc.l    cattle\1_fall_1
@@ -8216,10 +8224,12 @@ cattle\1_jump_1
     dc.l    0
     incbin  "cattle_jump_1.bin"
     dc.l    0
+cattle\1_kill_0
 cattle\1_fall_0
     dc.l    0
     incbin  "cattle_fall_0.bin"
     dc.l    0
+cattle\1_kill_1
 cattle\1_fall_1
     dc.l    0
     incbin  "cattle_fall_1.bin"

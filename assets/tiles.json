@@ -72,14 +72,6 @@
    "start_y":64
  },
 
-{
-      "generate_mask":true,
-  "name":"rustler_right_sprite",
- "sprite_number":6,
-     "frames":2,
-   "start_x":96,
-   "start_y":64
- },
  
 {
    "name":"police",
@@ -113,8 +105,16 @@
    "name":"police_kill",
    "sprite_number":0,
     "frames":1,
-   "start_x":192,
+   "start_x":144,
    "start_y":16
+ },
+{
+   "name":"cattle_kill",
+   "sprite_number":0,
+   "sprite_palette":[[0,0,0],[240,112,240],[240,240,240],[240,0,0]],
+    "frames":1,
+   "start_x":192,
+   "start_y":64
  },
  
  {

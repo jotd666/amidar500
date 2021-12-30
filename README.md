@@ -31,8 +31,6 @@ CONTROLS:
 ISSUES:
 
 - turn correction not perfect, sometimes character blocks or goes the wrong way
-- level 1: thief palette is wrong: red & white are inverted
-- level 2: fright mode is green
 - level 2: fall frames don't match (match level 1)
 - level 2: normal music loop is wrong
 - more than 4 normal amidars => wrong palette (blue)
