@@ -115,7 +115,7 @@ EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
 NB_HIGH_SCORES = 10
 
-START_LEVEL = 2
+START_LEVEL = 1
 
 N = 0;  if no maze, 
 U = 1;                  if has dot (unpainted)
@@ -1567,7 +1567,8 @@ draw_debug
     bsr write_decimal_number
     move.l  d4,d0
     ;;
-        IFEQ    0
+	
+        IFEQ    1
     add.w  #8,d1
     lea .tx(pc),a0
     bsr write_string
@@ -1592,6 +1593,16 @@ draw_debug
     ENDC
     ;;
     ;;
+    add.w  #8,d1
+    lea .ato(pc),a0
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    clr.l   d2
+    move.w  attack_timeout(pc),d2
+    move.w  #4,d3
+    bsr write_decimal_number
+	
     add.w  #8,d1
     lea .pmi(pc),a0
     bsr write_string
@@ -1671,6 +1682,8 @@ draw_debug
 .py
         dc.b    "PY ",0
 
+.ato
+		dc.b "ATO ",0
 .tx
         dc.b    "TX ",0
 .ty
@@ -4422,14 +4435,6 @@ update_intro_screen
     
     
 update_enemies:
-    move.w  attack_timeout(pc),d0
-    beq.b   .az
-    subq.w  #1,d0
-    move.w  d0,attack_timeout
-    bne.b   .az
-    ; just reached zero: set attack flag
-    bsr     set_thief_attack_mode
-.az
     tst.b   thief_attacks
     beq.b   .no_attack_sound
     tst.b   thief_attack_sound_count

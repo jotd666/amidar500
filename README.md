@@ -45,7 +45,6 @@ MINOR ISSUES
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
 - can paint corner with no painted neighbours
-- attack timeout is not accurate: level 1: too early
 - paint bonus level: paint when moving, not on update
   (avoids tricky stuff & missing paint)
 
