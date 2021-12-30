@@ -30,14 +30,14 @@ CONTROLS:
 
 ISSUES:
 
-- turn correction not perfect, sometimes character blocks or goes the wrong way
-- level 2: fall frames don't match (match level 1)
-- level 2: normal music loop is wrong
 - more than 4 normal amidars => wrong palette (blue)
 - 6 normal amidars (level 15) => no more tracer visible (but still deadly)!!!
+- high score propagation not working properly
+- four corners done: music, but enemies at least thief still kill player (double collision check??)
 
 MINOR ISSUES
 
+- turn correction not perfect, sometimes character blocks or goes the wrong way
 - bonus level: music loop too long only sometimes
 - intro: wrong start move, maze check rework probably caused that
 - undo_paint: not perfect but pretty close

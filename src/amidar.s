@@ -91,7 +91,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -115,7 +115,7 @@ EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
 NB_HIGH_SCORES = 10
 
-START_LEVEL = 2
+START_LEVEL = 1
 
 N = 0;  if no maze, 
 U = 1;                  if has dot (unpainted)
@@ -4180,6 +4180,7 @@ check_collisions
     move.w  #MODE_KILL,mode(a4)
     move.w  #PLAYER_KILL_TIMER,player_killed_timer
     clr.w   enemy_kill_timer
+    move.w  #KILL_FIRST_FRAME,enemy_kill_frame
 	tst.b rustler_level
 	beq.b	.no_rollback
 	bsr	rollback_paint
@@ -4947,12 +4948,11 @@ move_kill:
     cmp.w   #10,d0
     bne.b   .no_change
     clr.w   d0
+	; 4 frames
     move.w  enemy_kill_frame(pc),d1
-    cmp.w   #KILL_FIRST_FRAME+4,d1
-    beq.b   .2
-    move.w  #KILL_FIRST_FRAME+4,d1
-    bra.b   .out
-.2
+	addq.w	#4,d1
+    cmp.w   #KILL_FIRST_FRAME+16,d1
+    bne.b   .out
     move.w  #KILL_FIRST_FRAME,d1
 .out
     move.w  d1,enemy_kill_frame
@@ -4964,7 +4964,6 @@ move_chase
     ; record player movements
     bsr    store_player_tile
 
-    LOGPC   100
     
     bsr     animate_enemy
     ; enemy tries to reach objective
@@ -8216,20 +8215,21 @@ cattle\1_hang_1
     dc.l    0
     incbin  "cattle_hang_1.bin"
     dc.l    0
+cattle\1_kill_2
 cattle\1_jump_0
     dc.l    0
     incbin  "cattle_jump_0.bin"
     dc.l    0
+cattle\1_kill_3
 cattle\1_jump_1
     dc.l    0
     incbin  "cattle_jump_1.bin"
     dc.l    0
-cattle\1_kill_0
 cattle\1_fall_0
     dc.l    0
     incbin  "cattle_fall_0.bin"
     dc.l    0
-cattle\1_kill_1
+cattle\1_kill_0
 cattle\1_fall_1
     dc.l    0
     incbin  "cattle_fall_1.bin"
@@ -8241,6 +8241,10 @@ cattle\1_fall_2
 cattle\1_fall_3
     dc.l    0
     incbin  "cattle_fall_3.bin"
+    dc.l    0
+cattle\1_kill_1
+    dc.l    0
+    incbin  "cattle_kill.bin"
     dc.l    0
 
     ENDM
