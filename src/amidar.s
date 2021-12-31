@@ -83,10 +83,11 @@ INTERRUPTS_ON_MASK = $E038
 
 StartList = 38
 
-;autres labels
 
 Execbase  = 4
 
+
+; ******************** start test defines *********************************
 
 ; ---------------debug/adjustable variables
 
@@ -103,6 +104,15 @@ Execbase  = 4
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
 
+;HIGHSCORES_TEST
+
+; 
+;START_NB_LIVES = 1
+;START_SCORE = 1000/10
+;START_LEVEL = 1
+
+; ******************** end test defines *********************************
+
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
 ; a1 points to the end of the table
@@ -110,13 +120,28 @@ Execbase  = 4
 ; the player (me :)) isn't pressing any direction at all.
 ;RECORD_INPUT_TABLE_SIZE = 100*ORIGINAL_TICKS_PER_SEC
 
+	IFD	HIGHSCORES_TEST
+EXTRA_LIFE_SCORE = 3000/10
+EXTRA_LIFE_PERIOD = 7000/10
+DEFAULT_HIGH_SCORE = 10000/10
+	ELSE
 EXTRA_LIFE_SCORE = 30000/10
 EXTRA_LIFE_PERIOD = 70000/10
 DEFAULT_HIGH_SCORE = 10000/10
+	ENDC
 NB_HIGH_SCORES = 10
 
+; don't change the values below, change them above to test!!
+	IFND	START_SCORE
+START_SCORE = 0
+	ENDC
+	IFND	START_NB_LIVES
+START_NB_LIVES = 3+1
+	ENDC
+	IFND	START_LEVEL
 START_LEVEL = 1
-
+	ENDC
+	
 N = 0;  if no maze, 
 U = 1;                  if has dot (unpainted)
 T = 2;                  if temp paint
@@ -589,6 +614,7 @@ intro:
     ; to be inserted in high score table
     move.l  score(pc),d0
     lea     hiscore_table(pc),a0
+	move.l	a0,$110
     moveq.w  #NB_HIGH_SCORES-1,d1
     move.w   #-1,high_score_position
 .hiloop
@@ -602,9 +628,17 @@ intro:
     move.l  a0,a2   ; store for later
     tst.w   d1
     beq.b   .storesc    ; no lower scores: exit (else crash memory!)
+	move.w	d1,d2
+	; set a0 and a1 at the end of the score memory
+	subq.w	#1,d2
+	lsl.w	#2,d2
+	add.w	d2,a1
+	add.w	d2,a0	
     move.w  d1,d2       ; store insertion position
+	addq.w	#4,a0
+	addq.w	#4,a1
 .hishift_loop
-    move.l  (a0)+,(a1)+
+    move.l  -(a0),-(a1)
     dbf d2,.hishift_loop
 .storesc
     move.l  d0,(a2)
@@ -1068,14 +1102,14 @@ init_new_play:
     move.l  #demo_moves,record_data_pointer
     clr.l   replayed_input_state
     clr.w   can_eat_enemies_mode_pending
-    move.b  #4,nb_lives
+    move.b  #START_NB_LIVES,nb_lives
     clr.b   new_life_restart
     clr.b   extra_life_awarded
     clr.b    music_played
     move.l  #EXTRA_LIFE_SCORE,score_to_track
     move.w  #START_LEVEL-1,level_number
     clr.b   bonus_sprites
-    clr.l   score
+    move.l  #START_SCORE,score
     clr.l   previous_score
     clr.l   displayed_score
     rts
@@ -1110,7 +1144,6 @@ init_level:
     clr.w   power_song_countdown
     clr.b   elroy_mode_lock
     
-
     move.b   #4,nb_special_rectangles
     ; speed table, speed increasing every 2 levels up to level 15
     lea speed_table(pc),a1
@@ -2554,11 +2587,16 @@ high_score_highlight_color_table
     dc.w    $FFF
 high_score
     dc.l    DEFAULT_HIGH_SCORE
+	dc.l	$DEADBEEF
 hiscore_table:
     REPT    NB_HIGH_SCORES
-    ;; dc.l    (DEFAULT_HIGH_SCORE/10)*(10-REPTN)   ; decreasing score for testing
+	IFD		HIGHSCORES_TEST
+    dc.l    (DEFAULT_HIGH_SCORE/10)*(10-REPTN)   ; decreasing score for testing	
+	ELSE
     dc.l    DEFAULT_HIGH_SCORE
+	ENDC
     ENDR
+	dc.l	$DEADBEEF
 
 draw_char_command
     dc.w    0,0 ; X,Y
@@ -4238,6 +4276,7 @@ update_intro_screen
     bne.b   .no_first
     
 .first
+	move.l	speed_table(pc),global_speed_table
     tst.w   high_score_position
     bpl.b   .second
     
@@ -7110,6 +7149,12 @@ write_string:
 .end
     movem.l (a7)+,A0-A2/d1-D2
     rts
+
+	IFD		HIGHSCORES_TEST
+load_highscores
+save_highscores
+	rts
+	ELSE
     
 load_highscores
     lea scores_name(pc),a0
@@ -7155,7 +7200,6 @@ save_highscores
     lea hiscore_table(pc),a1
     move.l #4*NB_HIGH_SCORES,d0   ; size
     jmp  (resload_SaveFile,a2)
-    
 .standard
     move.l  _dosbase(pc),a6
     move.l  a0,d1
@@ -7171,6 +7215,7 @@ save_highscores
     jsr (_LVOClose,a6)    
 .out
     rts
+    ENDC
     
 _dosbase
     dc.l    0
@@ -7589,32 +7634,6 @@ no_direction_choice_table:
 score_value_table
     dc.l    20,40,80,160
 
-    
-; what: get current move speed for ghost
-; < A0: ghost structure
-; > D0.W: 0,1,2 depending on level, mode, etc...
-; trashes: nothing
-get_ghost_move_speed:   
-    movem.l  d1-d2/a1/a4,-(a7)
-    move.l  a0,a4
-    move.w  speed_table_index(a4),d1
-    add.w   #1,d1
-    cmp.w   #16,d1
-    bne.b   .nowrap
-    moveq   #0,d1
-.nowrap
-    ; store
-    move.w  d1,speed_table_index(a4)
-
-    ; depends on the level???
-    
-.table_computed
-    move.l  global_speed_table(pc),a1
-    move.w  speed_table_index(a4),d0
-    move.b  (a1,d0.w),d0            ; get speed index
-    ext.w   d0
-    movem.l (a7)+,d1-d2/a1/a4
-    rts
 
 
 
