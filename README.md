@@ -30,6 +30,8 @@ CONTROLS:
 
 ISSUES:
 
+- no animation when falling after normal music resumes
+- level 2: sometimes still refuses to paint
 - more than 4 normal amidars => wrong palette (blue)
 - 6 normal amidars (level 15) => no more tracer visible (but still deadly)!!!
 - level 2 four corners done: music, but enemies at least thief still kill player (double collision check??)
@@ -70,6 +72,7 @@ Prerequesites:
 - Amiga NDK
 - sox (included)
 - vasm 68k (included)
+- gnu make
 
 * besides the .bin files created from png by python, the rest of the process could be built on an amiga with phxass
  or some other assembler and sox for the amiga, but you have to be really mad to attempt it in 2021...)

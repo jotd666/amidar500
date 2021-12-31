@@ -74,6 +74,8 @@ INTERRUPTS_ON_MASK = $E038
     UWORD    score_display_timer
     UWORD    fall_hang_timer
     UWORD    fall_hang_toggle
+	UBYTE	 fright_mode
+	UBYTE	 pad
 	LABEL	 Enemy_SIZEOF
     
     ;Exec Library Base Offsets
@@ -92,7 +94,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -109,7 +111,7 @@ Execbase  = 4
 ; 
 ;START_NB_LIVES = 1
 ;START_SCORE = 1000/10
-;START_LEVEL = 1
+;START_LEVEL = 2
 
 ; ******************** end test defines *********************************
 
@@ -166,18 +168,22 @@ BONUS_PENDING = 0
 BONUS_WON = 1
 BONUS_LOST = 2
 
+; caution:
+; 1. do not change the order of those enumerates
+;    some parts of the code check against mode <= HANG
+; 2. do not change the values without reordering the draw & update jump tables
+;
 MODE_NORMAL = 0     ; police/cattle only. normal amidar movement
 MODE_STANDBY = 1<<2     ; thief only. thief ventures in the maze
 MODE_BORDER_PATROL = 2<<2 ; thief only. thief moves along maze borders
 MODE_CHASE = 3<<2      ; thief only. thief chases player
-MODE_FRIGHT = 4<<2     ; enemies are killable
-MODE_HANG = 5<<2       ; enemies hang on the maze
-MODE_FALL = 6<<2       ; enemies fall down
-MODE_JUMP = 7<<2
-MODE_KILL = 8<<2
-MODE_KILLED = 9<<2
-MODE_CRASH = 10<<2      ; enemy just hit the ground after falling
-MODE_LAST_ITEM = 11<<2
+MODE_HANG = 4<<2       ; enemies hang on the maze
+MODE_FALL = 5<<2       ; enemies fall down
+MODE_JUMP = 6<<2
+MODE_KILL = 7<<2
+MODE_KILLED = 8<<2
+MODE_CRASH = 9<<2      ; enemy just hit the ground after falling
+MODE_LAST_ITEM = 10<<2
 
 ; --------------- end debug/adjustable variables
 
@@ -1336,8 +1342,10 @@ init_enemies
     move.w  (a2)+,d0
     addq.w  #4,d0
 	move.w	d0,ypos(a0)
+	clr.b	fright_mode(a0)
     move.w  #DOWN,direction(a0)
     move.w  #MODE_NORMAL,mode(a0)
+    move.w  #MODE_NORMAL,previous_mode(a0)
     
     eor.w   #1,d2
     beq.b   .forward_palette
@@ -1358,6 +1366,7 @@ init_enemies
     move.l (a3)+,palette+4(a0)
     move.w  #UP,direction(a0)
     move.w  #MODE_BORDER_PATROL,mode(a0)
+    move.w  #MODE_BORDER_PATROL,previous_mode(a0)
     clr.w   h_speed(a0)     ; moving up at start
     move.w  #-1,v_speed(a0)     ; moving up at start
 
@@ -1700,11 +1709,7 @@ draw_debug
     bsr write_string
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
-    clr.l   d2
-    lea rect_2_18,a0
-    clr.l   d2
-    move.w  cdots(a0),d2
-    ;move.l #rect_2_18,d2
+    move.l	maze_wall_table(pc),d2
     move.w  #8,d3
     bsr write_hexadecimal_number
 
@@ -1733,7 +1738,7 @@ draw_debug
 .bonus
         dc.b    "BT ",0
 .dottable:
-        dc.b    "RECTA ",0
+        dc.b    "DOTS ",0
         even
 
 draw_enemies:
@@ -1826,7 +1831,6 @@ draw_enemies:
     move.w  d2,(2,a1)    
     rts
 .jump_table
-    dc.l    .draw_normal
     dc.l    .draw_normal
     dc.l    .draw_normal
     dc.l    .draw_normal
@@ -4104,6 +4108,26 @@ update_all
     subq.w  #1,d0
     move.w  d0,power_state_counter
     bne.b   .power_continues
+
+	; reset enemies to lethal
+	lea	enemies(pc),a0
+	move.w	nb_enemies_but_thief(pc),d1
+.gloop
+    ; no power state, reset old mode
+    move.w  mode(a0),d2
+	cmp.w	#MODE_HANG,d2
+	bne.b	.no_hang
+    ; subtract 8 again
+    subq.w  #8,ypos(a0)
+.no_hang
+	cmp.w	#MODE_FALL,d2
+	beq.b	.no_reset_mode
+	move.w	previous_mode(a0),mode(a0)
+.no_reset_mode
+	clr.b	fright_mode(a0)
+	add.w	#Enemy_SIZEOF,a0
+	dbf		d1,.gloop
+
 .skip_a_lot
     ; reset enemies palette
 
@@ -4206,15 +4230,15 @@ check_collisions
     dbf d7,.gloop
     rts
 .collision
-    ; is the ghost frightened?
-    move.w  mode(a4),d0
-    cmp.w   #MODE_FRIGHT,d0
-    beq.b   .pac_eats_ghost
-    bcc.b   .nomatch        ; ignore those modes
-
+    ; is the enemy falling, hanging, whatever...
+	cmp.w	#MODE_HANG,mode(a4)
+	bcc.b	.nomatch	; ignore those killed modes
+    tst.b   fright_mode(a4)
+    bne.b   .pac_eats_ghost
+	
     ; player is killed
     tst.b   invincible_cheat_flag
-    bne.b   .nomatch    
+    bne.b   .nomatch
     move.w  #MODE_KILL,mode(a4)
     move.w  #PLAYER_KILL_TIMER,player_killed_timer
     clr.w   enemy_kill_timer
@@ -4518,17 +4542,15 @@ update_enemies:
 .gloop
     move.w  mode(a4),d0
     move.l d7,-(a7)
-    bsr     move_according_to_mode
+
+    lea     enemy_move_table(pc),a0
+    move.l  (a0,d0.w),a0
+    jsr (a0)
     move.l  (a7)+,d7
     add.w   #Enemy_SIZEOF,a4
     dbf d7,.gloop
     rts
 
-; < D0: mode
-move_according_to_mode
-    lea     enemy_move_table(pc),a0
-    move.l  (a0,d0.w),a0
-    jmp (a0)
      
 animate_enemy
     move.w  frame(a4),d1
@@ -4541,7 +4563,6 @@ enemy_move_table
     dc.l    move_standby
     dc.l    move_border_patrol
     dc.l    move_chase
-    dc.l    move_fright
     dc.l    move_hang
     dc.l    move_fall
     dc.l    move_jump
@@ -4923,12 +4944,6 @@ move_border_patrol
     move.l  #$0000FFFF,h_speed(a4)   ; change to up
     move.w  #UP,direction(a4)
     bra.b   .retry
-
-move_fright
-    bsr reset_mode
-    move.w  previous_mode(a4),d0
-
-    bra move_according_to_mode
     
 move_killed
     ; just display score for a while, decrease a counter
@@ -4938,14 +4953,15 @@ move_killed
     ; now get x coord and see if it's close to vertical lanes    
     move.w  xpos(a4),d0
     lea hangfall_table(pc),a0
-    move.w  d0,$110     ; TEMP
     add.w   d0,d0
     move.w  (a0,d0.w),d0
     move.w  d0,mode(a4)
+	IFD		DEBUG_MODE
     cmp.w   #MODE_LAST_ITEM,d0
     bcs.b   .ok
     blitz 
 .ok
+	ENDC
     cmp.w   #MODE_FALL,d0
     bne.b   .no_fall
     lea     enemy_falling_sound,a0
@@ -5210,13 +5226,6 @@ move_chase
     
 
 move_hang
-    tst.w   power_state_counter
-    bne.b   .power
-    ; no power state, reset old mode
-    move.w  previous_mode(a4),mode(a4)
-    ; subtract 8 again
-    subq.w  #8,ypos(a4)
-.power
     ; does nothing, just increases timer for hang animation
     move.w  fall_hang_timer(a4),d0
     addq.w  #1,d0
@@ -5229,7 +5238,6 @@ move_hang
     rts
 
 move_crash
-    bsr reset_mode
     move.w  fall_hang_timer(a4),d0
     addq.w  #1,d0
     cmp.w   #12,d0
@@ -5295,13 +5303,6 @@ move_fall
 .no_first
     rts
     
-reset_mode
-    tst.w   power_state_counter
-    bne.b   .power
-    ; no power state, reset old mode
-    move.w  previous_mode(a4),mode(a4)
-.power
-    rts
     
     
 play_loop_fx
@@ -5324,8 +5325,12 @@ all_four_corners_done
     move.w  d7,nb_enemies_to_eat
     subq.w  #1,d7
 .gloop
-    move.w  mode(a0),previous_mode(a0)
-    move.w  #MODE_FRIGHT,mode(a0)
+    move.w  mode(a0),d0
+	cmp.w	#MODE_HANG,d0
+	bcc.b	.skip		; can only happen with cheat keys
+	move.w	d0,previous_mode(a0)
+    st.b  fright_mode(a0)
+.skip
     add.w   #Enemy_SIZEOF,a0    
     dbf d7,.gloop
     
@@ -5346,9 +5351,8 @@ set_enemy_power_state_palette
     move.l  fright_palette(pc),a2   ; same for all enemies
     move.w  nb_enemies_but_thief(pc),d0       ; plus one
 .gloop
-    move.w  mode(a0),d1
-    cmp.w   #MODE_FRIGHT,d1
-    bne.b   .next
+    tst.b	fright_mode(a0)
+    beq.b   .next
     move.l  color_register(a0),a1
     ; set/reset palette
     move.l  (a2),(a1)+
@@ -5365,9 +5369,8 @@ set_enemy_power_blink_palette
     move.l  fright_blink_palette(pc),a2   ; same for all enemies
     move.w  nb_enemies_but_thief(pc),d0       ; plus one
 .gloop
-    move.w  mode(a0),d1
-    cmp.w   #MODE_FRIGHT,d1
-    bne.b   .next
+    tst.b	fright_mode(a0)
+    beq.b   .next
     move.l  color_register(a0),a1
     ; set/reset palette
     move.l  (a2),(a1)+
@@ -7169,8 +7172,8 @@ load_highscores
     lea hiscore_table(pc),a1
     move.l #40,d0   ; size
     moveq.l #0,d1   ; offset
-    jmp  (resload_LoadFileOffset,a2)
-    
+    jsr  (resload_LoadFileOffset,a2)
+    bra.b	.update_highest
 .standard
     move.l  _dosbase(pc),a6
     move.l  a0,d1
@@ -7183,7 +7186,9 @@ load_highscores
     move.l  #hiscore_table,d2
     jsr (_LVORead,a6)
     move.l  d4,d1
-    jsr (_LVOClose,a6)    
+    jsr (_LVOClose,a6)
+.update_highest
+	move.l	hiscore_table(pc),high_score
 .no_file
     rts
     
