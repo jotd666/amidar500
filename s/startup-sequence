@@ -1,0 +1,5 @@
+lab loop
+echo amidar...
+whdload amidar.slave noreq splashdelay=0 NoWriteCache
+
+skip loop back

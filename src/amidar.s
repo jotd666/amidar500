@@ -111,7 +111,7 @@ Execbase  = 4
 ; 
 ;START_NB_LIVES = 1
 ;START_SCORE = 1000/10
-;START_LEVEL = 2
+;START_LEVEL = 5
 
 ; ******************** end test defines *********************************
 
@@ -1178,9 +1178,9 @@ init_level:
 
     lea nb_enemy_table(pc),a1
     move.w  level_number(pc),d2
-    cmp.w   #6,d2
+    cmp.w   #5,d2
     bcs.b   .lower
-    move.w  #6,d2
+    move.w  #5,d2
 .lower
     add.w   d2,d2
     move.w  (a1,d2.w),nb_enemies_but_thief
@@ -1308,12 +1308,7 @@ init_enemies
     move.l #police_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
     move.l #police_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
 .rustler
-    ; shared settings
-    moveq   #6,d7
-    ; clear all enemies
-.cloop
-    add.w   #Enemy_SIZEOF,a0
-    dbf d7,.cloop
+
 
     move.w  level_number(pc),d0
     and.w   #3,d0
@@ -1358,11 +1353,13 @@ init_enemies
     move.w  #DOWN,direction(a0)
     move.w  #MODE_NORMAL,mode(a0)
     move.w  #MODE_NORMAL,previous_mode(a0)
-    
-    eor.w   #1,d2
-    beq.b   .forward_palette
-    addq.w  #8,a3
-.forward_palette
+    ; WTF was I thinking with this code. This makes no sense and is completely
+	; useless and buggy for 6+1 enemies
+	; all palette entries are the same for amidar moving enemies
+    ;eor.w   #1,d2
+    ;beq.b   .forward_palette
+    ;addq.w  #8,a3
+;.forward_palette
     add.w   #Enemy_SIZEOF,a0
     dbf d7,.igloop
 .no_other_enemies
@@ -2688,7 +2685,8 @@ clear_plane_any_cpu_any_height
 
     lsr.w   #3,d0
     add.w   d0,a1
-    btst    #0,d0
+	move.l	a1,d1
+    btst    #0,d1
     bne.b   .odd
     cmp.w   #4,d2
     bcc.b   .even
@@ -2710,6 +2708,8 @@ clear_plane_any_cpu_any_height
     rts
 
 .even
+	blitz
+	nop
     ; even address, big width: can use longword erase
     move.w  d3,d0
     lsr.w   #2,d2
@@ -7497,7 +7497,7 @@ extra_life_message:
 score_table
     dc.w    0,1,5
 nb_enemy_table
-    dc.w    4,4,5,5,6,6,7,7
+    dc.w    4,4,5,5,6,6
 
 fruit_score     ; must follow score_table
     dc.w    10
