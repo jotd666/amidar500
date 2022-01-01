@@ -202,7 +202,8 @@ def process_mazes():
                         mark(xstart,ystart+yt,rect)
 
             fw.write("maze_{}_dot_table_read_only:\n".format(level))
-            dot_rect_matrix[-1][40:64] = [0]*24
+            if level==1:
+                dot_rect_matrix[-1][40:64] = [0]*24
             for row in dot_rect_matrix:
                 fw.write("\tdc.l\t")
                 fw.write(",".join("{}".format(str(x)) for x in row))

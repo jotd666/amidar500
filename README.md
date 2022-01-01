@@ -30,21 +30,19 @@ CONTROLS:
 
 ISSUES:
 
+- power out & killed thief => should reset to standby & acquire new target (with sound)
 - no animation when falling after normal music resumes
 - level 2: sometimes still refuses to paint
 - more than 4 normal amidars => wrong palette (blue)
 - 6 normal amidars (level 15) => no more tracer visible (but still deadly)!!!
-- level 2 four corners done: music, but enemies at least thief still kill player (double collision check??)
-- too many lives: some lives not erased in status bar
 - turn correction not perfect, sometimes character blocks or goes the wrong way
 - bonus level: music loop too long only sometimes
 - intro: wrong start move, maze check rework probably caused that
-- intro: moves too fast (speed table not initialised!!)
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
-- can paint corner with no painted neighbours
 - paint bonus level: paint when moving, not on update
   (avoids tricky stuff & missing paint)
+- level 3 => level 4: sometimes no bonus level
 
 TODO:
 

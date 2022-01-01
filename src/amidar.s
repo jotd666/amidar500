@@ -94,7 +94,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -779,7 +779,9 @@ f_temp_to_unpainted
     movem.w d0-d1,-(a7)
     bsr commit_paint
     movem.w (a7)+,d0-d1
-.nothing_to_validate    
+.nothing_to_validate  
+	; continues to painted => unpainted state now that we commited the paint
+f_painted_to_unpainted 
     ; keeps painting
     bsr dot_painted_temp
     ; update compatible rectangles (intersection)
@@ -789,25 +791,29 @@ f_temp_to_unpainted
     clr.l   -(a7)
     clr.l   -(a7)
     move.l  a7,a1
+	clr.w	nb_compatible_rectangles
     lea compatible_rectangles(pc),a0
     
     move.l  d4,d0
     beq.b   .no_d4
     bsr     .lookup_rect
     bne.b   .no_d4
-    move.l  d4,(a1)+        ; found: store
+    move.l  d4,(a1)+        ; found: store	
+	addq.w	#1,nb_compatible_rectangles
 .no_d4    
     move.l  d5,d0
     beq.b   .no_d5
     bsr     .lookup_rect
     bne.b   .no_d5
     move.l  d5,(a1)+        ; found: store
+	addq.w	#1,nb_compatible_rectangles
 .no_d5    
     move.l  d6,d0
     beq.b   .no_d6
     bsr     .lookup_rect
     bne.b   .no_d6
     move.l  d6,(a1)+        ; found: store
+	addq.w	#1,nb_compatible_rectangles
     ; note that increasing a1 is required even for the last test
     ; because if a1 == a7 then there's no intersection registered
 .no_d6    
@@ -896,34 +902,40 @@ commit_paint
 
     ; play fill sound once even if several rectangles
     lea     filled_sound,a0
-    bsr     play_fx
-    
-    rts
-    
-    
-    rts
+    bra     play_fx
+ 
 f_unpainted_to_painted
-    ; nothing to do
-    rts
-    
-f_painted_to_unpainted
-    ; starts painting
-    bsr dot_painted_temp
-    ; compute the current compatible rectangles    
+f_remains_painted
+;init_compatible_rectangles
+    ; compute the initial compatible rectangles all the time
+	; computing them when leaving the painted zone is too late
+	; and results in being able to paint some rectangles that are
+	; not strictly adjacent (like the 200 score rect in the center row:
+	; up, left, then up, this was a tricky corner case)
     bsr get_dot_rectangles
     lea compatible_rectangles(pc),a1
     
+	clr.w	nb_compatible_rectangles
     ; we have them in D4-D6, now store them
     move.l  d4,(a1)+
+	beq.b	.1
+	addq.w	#1,nb_compatible_rectangles
+.1
     move.l  d5,(a1)+
+	beq.b	.2
+	addq.w	#1,nb_compatible_rectangles
+.2
     move.l  d6,(a1)
+	beq.b	.3
+	addq.w	#1,nb_compatible_rectangles
+.3
     rts
     
-        
-
+    
+       
 f_remains_unpainted
-f_remains_painted
-    rts
+	rts
+
     
 f_unpainted_to_temp
     blitz
@@ -1712,6 +1724,17 @@ draw_debug
     move.l	maze_wall_table(pc),d2
     move.w  #8,d3
     bsr write_hexadecimal_number
+	
+    move.w  #DEBUG_X,d0
+    add.w  #8,d1
+    lea .nbrects(pc),a0
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+	clr.l	d2
+    move.w	nb_compatible_rectangles(pc),d2
+    move.w  #2,d3
+    bsr write_hexadecimal_number
 
     rts
     
@@ -1739,6 +1762,8 @@ draw_debug
         dc.b    "BT ",0
 .dottable:
         dc.b    "DOTS ",0
+.nbrects
+		dc.b	"NBRECTS ",0
         even
 
 draw_enemies:
@@ -2863,22 +2888,25 @@ draw_lives:
 .cloop
     moveq.l #0,d0
     moveq.l #0,d1
-    move.l  #6,d2
+    move.l  #12,d2
     bsr clear_plane_any_cpu
     add.w   #SCREEN_PLANE_SIZE,a1
     dbf d7,.cloop
     
     clr D0
+	
 draw_the_lives
     move.b  nb_lives(pc),d7
     ext     d7
     subq.w  #2,d7
     bmi.b   .out
-    ext.l   d7
+	cmp.w	#8,d7
+	bcs.b	.lloop
+	move.w	#8,d7	; no more than 8 lives displayed
 .lloop
     lea lives,a0
     lea	screen_data+LIVES_OFFSET,a1
-    add.l   d7,a1
+    add.w   d7,a1
     moveq   #3,d2    
 .ploop
     move.l  a1,a2
@@ -3565,7 +3593,17 @@ saved_intena
 ; what: level 2 interrupt (keyboard)
 ; args: none
 ; trashes: none
-    
+;
+; cheat keys
+; F1: skip level
+; F2: toggle invincibility
+; F3: toggle infinite lives
+; F4: show debug info
+; F5: toggle power sequence
+; F6: make power sequence longer
+; F8: dump maze dot data (whdload only)
+; F9: thief attacks now
+
 level2_interrupt:
 	movem.l	D0/A0/A5,-(a7)
 	LEA	$00BFD000,A5
@@ -3655,11 +3693,13 @@ level2_interrupt:
 .no_debug
     cmp.b   #$54,d0     ; F5
     bne.b   .no_bonus
-    ; activate the "power pill" sequence only if enemies are "normal"
-    cmp.w  #MODE_NORMAL,enemies+Enemy_SIZEOF+mode
-    bne.b   .no_bonus
+    ; activate the "power pill" sequence or shut it
+    tst.b  enemies+Enemy_SIZEOF+fright_mode
+    bne.b   .shut_power
     move.w  #1,can_eat_enemies_mode_pending
     bra.b   .no_playing
+.shut_power
+	move.w	#1,power_state_counter
 .no_bonus
     cmp.b   #$55,d0     ; F6
     bne.b   .no_longer_bonus
@@ -3669,7 +3709,7 @@ level2_interrupt:
     move.w  #POWER_STATE_LENGTH,power_state_counter
     bra.b   .no_playing
 .no_longer_bonus
-    cmp.b   #$56,d0     ; F7
+    cmp.b   #$57,d0     ; F8
     bne.b   .no_maze_dump
     tst.l   _resload
     beq.b   .no_maze_dump
@@ -3681,7 +3721,7 @@ level2_interrupt:
     jsr     (resload_SaveFile,a2)
     movem.l (a7)+,d0-d1/a0-a2
 .no_maze_dump
-    cmp.b   #$57,d0     ; F8
+    cmp.b   #$58,d0     ; F9
     bne.b   .no_attack
     move.w  #1,attack_timeout
 .no_attack
@@ -4594,7 +4634,6 @@ move_jump
 ; todo: loop according to instant speed, ATM speed=1
 move_normal
     bsr animate_enemy
-    LOGPC   100
     bsr get_next_speed_index
     cmp.b   #1,d0
     beq.b   .one_iteration      ; do it once
@@ -7370,7 +7409,8 @@ previous_direction:
     dc.w    0
 attack_timeout:
     dc.w    0
-
+nb_compatible_rectangles
+	dc.w	0
 
 thief_target_tile_x
     dc.w    0
