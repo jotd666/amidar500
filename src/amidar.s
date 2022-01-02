@@ -4008,6 +4008,8 @@ update_all
     ; bottom is reached
     ; see if won
     ; arm timeout
+    lea enemies+Enemy_SIZEOF(pc),a4
+	
     move.w  xpos(a4),d0
     cmp.w   banana_x(pc),d0
     bne.b   .lose
@@ -4582,7 +4584,6 @@ update_enemies:
 .gloop
     move.w  mode(a4),d0
     move.l d7,-(a7)
-
     lea     enemy_move_table(pc),a0
     move.l  (a0,d0.w),a0
     jsr (a0)
@@ -5642,6 +5643,8 @@ update_player
 
     ADD_XY_TO_A1    a0
     
+    tst.l   d4
+    beq.b   .z	; can happen at startup
     bsr clear_dot
     move.l  d4,a0
     bsr     count_dot
@@ -6019,7 +6022,7 @@ enemies_previous_state
 count_dot
     move.w  cdots(a0),d0
     beq.b   .no_dots
-    subq    #1,d0
+    subq.w    #1,d0
     bne.b   .still_dots
     bsr     fill_rectangle
     subq.b  #1,nb_rectangles

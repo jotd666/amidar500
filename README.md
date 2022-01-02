@@ -28,6 +28,16 @@ CONTROLS:
 - P/second button: pause
 - F10 (or quitkey): quit
 
+HOW TO PLAY:
+
+- avoid enemies
+- eat all dots (odd levels) to complete level
+- paint all zones (even levels) to complete level. You cannot start painting from an unpainted zone
+- if cornered use jump to get past the enemies
+- fill all 4 corner regions to get a temporary "power state" where you can kill the
+  enemies
+- after a while, the white thief (aka tracer) will start following you. Don't wait too long!
+
 ISSUES:
 
 - no animation when falling after normal music resumes
@@ -39,7 +49,6 @@ ISSUES:
 
 RANDOM ISSUES:
 
-- nasty crash when painting a zone in level 2
 - level 3 => level 4: sometimes no bonus level
 - level 2: sometimes still refuses to paint
 - bonus level: music loop too long only sometimes

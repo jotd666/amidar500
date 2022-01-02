@@ -3,7 +3,7 @@
 	INCLUDE	whdload.i
 	INCLUDE	whdmacros.i
 
-;;CHIP_ONLY
+;CHIP_ONLY
 
 _base	SLAVE_HEADER					; ws_security + ws_id
 	dc.w	17					; ws_version (was 10)
@@ -78,7 +78,7 @@ start:
     
     IFD CHIP_ONLY
     lea  _expmem(pc),a0
-    move.l  #$100000,(a0)
+    move.l  #$10000,(a0)
     ENDC
     lea progstart(pc),a0
     move.l  _expmem(pc),(a0)
@@ -104,14 +104,20 @@ _Relocate	movem.l	d0-d1/a0-a2,-(sp)
         clr.l   -(a7)                   ;TAG_DONE
 ;        pea     -1                      ;true
 ;        pea     WHDLTAG_LOADSEG
+		IFND		CHIP_ONLY
         move.l  #$400,-(a7)       ;chip area
         pea     WHDLTAG_CHIPPTR        
         pea     8                       ;8 byte alignment
         pea     WHDLTAG_ALIGN
+		ENDC
         move.l  a7,a1                   ;tags		move.l	_resload(pc),a2
 		jsr	resload_Relocate(a2)
+		IFND		CHIP_ONLY
         add.w   #5*4,a7
-
+		ELSE
+		addq.w	#4,a7
+		ENDC
+		
         movem.l	(sp)+,d0-d1/a0-a2
 		rts
 
