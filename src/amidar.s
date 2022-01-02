@@ -1481,7 +1481,7 @@ init_player:
     bsr     reset_rollback_pointers
 .cont
     
-    move.w  #NB_TILES_PER_LINE*4,xpos(a0)
+    move.w  #NB_TILES_PER_LINE*4-2,xpos(a0)
 	move.w	#Y_MAX,ypos(a0)
     
     ;move.w  #0*4,xpos(a0)
@@ -2272,9 +2272,9 @@ draw_intro_screen
     bsr write_color_string
     
     move.w  d2,d4
-    move.w  #56,d0
+    move.w  #64,d0
     move.l  (a4)+,d2
-    move.w  #8,d3
+    move.w  #7,d3
     bsr write_color_decimal_number
     
     move.w  d4,d2
@@ -2353,54 +2353,10 @@ draw_intro_screen
     swap    d2
     move.w  d2,(2,a1)  
     
-    
-    move.w  xpos(a0),d0
-    move.w  ypos(a0),d1
-
-    move.w  previous_xpos(a0),d2
-    bmi.b   .no_diagonal
-    cmp.w   d0,d2
-    beq.b   .no_diagonal
-    move.w  previous_ypos(a0),d3
-    cmp.w   d1,d3
-    beq.b   .no_diagonal
-    ; both x and y are different because update skipped a frame and went diagonal
-    ; we have to fix that else the line will be buggy
-        ; y is different
-    movem.w d0-d1,-(a7)
-    move.w   d3,d1  ; previous y
-    ;;add.w   #2,d1
-    bsr .copyit
-    movem.w (a7),d0-d1
-    move.w   d2,d0  ; previous y
-    ;;add.w   #2,d1
-    bsr .copyit
-    movem.w (a7)+,d0-d1
-
-.no_diagonal    
-    move.w  d0,previous_xpos(a0)
-    move.w  d1,previous_ypos(a0)
-    
-    ;;add.w   #2,d1
-
-    bsr .copyit
-    rts
-    
-    
-    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
-.copyit
-    lea screen_data,a1
-    add.w   #INTRO_Y_SHIFT+8,d1
-    ADD_XY_TO_A1    a2
-    lea (SCREEN_PLANE_SIZE,a1),a2
-    cmp.w   #LEFT,direction(a0)
-    beq.b   .skipleft
-    move.b  (a1),(a2)
-    move.b  (NB_BYTES_PER_LINE,a1),(NB_BYTES_PER_LINE,a2)
-.skipleft
-    move.b  (1,a1),(1,a2)
-    move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
-    rts
+    ; paint is done in the update part
+	; the draw part misses bits because it's updated at 50 Hz
+	; where the update part is updated at 60 Hz to follow original
+	; game speed
     
 .no_part1
     
@@ -4311,6 +4267,8 @@ check_collisions
     move.w   next_enemy_iteration_score(pc),d1
     move.l  d1,d0
     add.w   #SCORE_FIRST_FRAME,d0
+	cmp.w	#4,nb_enemies_but_thief
+	beq.b	.still_enemies	; not when there are only 4+1 enemies
     tst.w   nb_enemies_to_eat
     bne.b   .still_enemies
     addq.w  #4,d0       ; 3200 score frame
@@ -4322,6 +4280,8 @@ check_collisions
     cmp.l   #160,d0
     bne.b   .not_max
     ; re-award 1600 unless only 1 enemy left
+	cmp.w	#4,nb_enemies_but_thief
+	beq.b	add_to_score	; not when there are only 4+1 enemies
     tst.w   nb_enemies_to_eat
     bne.b   add_to_score
     ; award 3200 points
@@ -4427,9 +4387,28 @@ update_intro_screen
     
     lea enemies+Enemy_SIZEOF(pc),a4
 
+	; paint here
+    move.w  xpos(a4),d0
+    move.w  ypos(a4),d1
+
+    lea screen_data,a1
+    add.w   #INTRO_Y_SHIFT+8,d1
+    ADD_XY_TO_A1    a2
+    lea (SCREEN_PLANE_SIZE,a1),a2
+    cmp.w   #LEFT,direction(a4)
+    beq.b   .skipleft
+    move.b  (a1),(a2)
+    move.b  (NB_BYTES_PER_LINE,a1),(NB_BYTES_PER_LINE,a2)
+.skipleft
+    move.b  (1,a1),(1,a2)
+    move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
+
+
     move.w  ypos(a4),d0
-    bmi.b   .down   ; not in the maze yet²
-    cmp.w   #116,d0
+    bmi.b   .down   ; not in the maze yet
+	cmp.w	#4,d0
+	bcs.b	.down
+    cmp.w   #112,d0
     beq.b   .out
     cmp.w   #108,d0
     bcc.b   .down   ; out of the maze
@@ -4493,12 +4472,11 @@ update_intro_screen
     add.w   #24,.cct_y
     move.w  #CHARACTER_X_START,.cct_x
     clr.w   .cct_char_index
-    
+.out    
 .no_text
     rts
-    
-.out
-    rts
+
+
 .demo
     ; change state
     clr.l   state_timer
@@ -6302,6 +6280,7 @@ draw_player:
 .pacblit
 
     move.w  xpos(a2),d3    
+	addq.w	#2,d3	; X-offset
     move.w  ypos(a2),d4
     ; center => top left
     moveq.l #-1,d2 ; mask

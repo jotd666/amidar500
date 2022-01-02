@@ -41,16 +41,14 @@ HOW TO PLAY:
 ISSUES:
 
 - no animation when falling after normal music resumes
-- 3200 points awarded at level 1: not possible
 - turn correction not perfect, sometimes character blocks or goes the wrong way
-- intro: wrong start move, maze check rework probably caused that
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
 
 RANDOM ISSUES:
 
 - level 3 => level 4: sometimes no bonus level
-- level 2: sometimes still refuses to paint
+- level 2: sometimes still refuses to validate paint
 - bonus level: music loop too long only sometimes
 
 TODO:
@@ -61,7 +59,7 @@ TODO:
 - paint bonus level: paint when moving, not on update
   (would avoid tricky stuff & missing paint)
 - power timeout with killed thief => should reset to standby & acquire new target (with sound)
-
+- demo mode
 
 CREDITS:
 
