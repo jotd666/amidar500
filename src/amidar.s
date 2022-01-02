@@ -94,7 +94,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -104,7 +104,7 @@ Execbase  = 4
 ;BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
-;NO_ENEMIES
+NO_ENEMIES
 
 ;HIGHSCORES_TEST
 
@@ -1465,6 +1465,7 @@ update_color_addresses
 init_player:
     clr.l   previous_valid_direction
     clr.w   death_frame_offset
+	clr.b	reverse_direction_lock
 	
     tst.b   new_life_restart
     bne.b   .no_clear
@@ -1618,6 +1619,27 @@ draw_debug
     bsr write_decimal_number
     move.l  d4,d0
     ;;
+    add.w  #8,d1
+    lea .ph(pc),a0
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    clr.l   d2
+    move.w previous_valid_direction(pc),d2
+    move.w  #5,d3
+    bsr write_decimal_number
+    move.w  #DEBUG_X,d0
+    add.w  #8,d1
+    move.l  d0,d4
+    lea .pv(pc),a0
+    bsr write_string
+    lsl.w   #3,d0
+    add.w  #DEBUG_X,d0
+    clr.l   d2
+    move.w previous_direction+2(pc),d2
+    move.w  #3,d3
+    bsr write_decimal_number
+    move.l  d4,d0
 	
         IFEQ    1
     add.w  #8,d1
@@ -1739,7 +1761,10 @@ draw_debug
         dc.b    "PX ",0
 .py
         dc.b    "PY ",0
-
+.ph
+		dc.b	"PREVH ",0
+.pv
+		dc.b	"PREVV ",0
 .ato
 		dc.b "ATO ",0
 .tx
@@ -5566,6 +5591,7 @@ update_player
     ; second pass just try to see if latest move would work ("corner cut")
     move.l  previous_valid_direction(pc),d6
     beq.b   .no_move
+	; it would work, store it
     move.l  d6,h_speed(a4)
     bsr     .move_attempt
     cmp.w   #3,d5
@@ -5573,6 +5599,14 @@ update_player
     ; nothing to do, previous move wasn't valid
     bra.b   .no_move
 .valid_move
+	; move is valid
+	; weaken reverse direction lock if any
+	; (without that lock mechanism, player could
+	; oscillate between opposite corrective decisions)
+	tst.b	reverse_direction_lock
+	beq.b	.no_reverse_lock
+	subq.b	#1,reverse_direction_lock
+.no_reverse_lock
     ; store for later
     move.l  h_speed(a4),previous_valid_direction
     bsr animate_player    
@@ -5777,7 +5811,7 @@ DIRCHECK_HORIZ:MACRO
     addq.w  #8,d1
     bsr     is_location_legal
     tst.b   d0
-    bne.b   .go_right
+    bne.b   reverse_horiz_direction
     rts
 .no_down
     ; has to be "up"
@@ -5785,10 +5819,7 @@ DIRCHECK_HORIZ:MACRO
     subq.w  #8,d1
     bsr     is_location_legal
     tst.b   d0
-    beq.b   .no_up
-.go_right
-    ; looks like player went past the "up" intersection: change direction
-    neg.w  previous_valid_direction
+    bne.b	reverse_horiz_direction
 .no_up
     rts
     ENDM
@@ -5807,7 +5838,7 @@ DIRCHECK_VERT:MACRO
     addq.w  #8,d0
     bsr     is_location_legal
     tst.b   d0
-    bne.b   .reverse
+    bne.b   reverse_vert_direction
     rts
 .no_right
     ; has to be "left"
@@ -5815,15 +5846,31 @@ DIRCHECK_VERT:MACRO
     subq.w  #8,d0
     bsr     is_location_legal
     tst.b   d0
-    beq.b   .no_left
-.reverse
-    ; looks like player went past the horizontal intersection: change direction
-    neg.w  previous_valid_direction+2
+    bne.b   reverse_vert_direction
 .no_left
     rts
     ENDM
 
-
+reverse_vert_direction
+	tst.b	reverse_direction_lock
+	beq.b	.out
+    ; looks like player went past the "up" intersection: change direction
+    neg.w  previous_valid_direction+2
+	; not possible to change direction until 8 valid moves are done
+	move.b	#8,reverse_direction_lock
+.out
+	rts
+	
+reverse_horiz_direction
+	tst.b	reverse_direction_lock
+	beq.b	.out
+    ; looks like player went past the "up" intersection: change direction
+    neg.w  previous_valid_direction
+	; not possible to change direction until 8 valid moves are done
+	move.b	#8,reverse_direction_lock
+.out	
+	rts
+	
 ; d2 contains X
 ; d3 contains Y
 ; we use d4
@@ -5836,16 +5883,16 @@ DIRCHECK_VERT:MACRO
 ;
 ; this is still not right
 dircheck_right
-    DIRCHECK_HORIZ  -7
+    DIRCHECK_HORIZ  -8
 
 dircheck_left
-    DIRCHECK_HORIZ  7
+    DIRCHECK_HORIZ  8
 
 dircheck_up
-    DIRCHECK_VERT  7
+    DIRCHECK_VERT  8
  
 dircheck_down
-    DIRCHECK_VERT   -7
+    DIRCHECK_VERT   -8
     
 
 
@@ -7422,6 +7469,8 @@ next_level_is_bonus_level
     dc.b    0
 nb_lives:
     dc.b    0
+reverse_direction_lock
+	dc.b	0
 smaller_vertical_paint:
     dc.b    0
 rustler_level:

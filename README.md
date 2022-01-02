@@ -41,9 +41,11 @@ HOW TO PLAY:
 ISSUES:
 
 - no animation when falling after normal music resumes
-- turn correction not perfect, sometimes character blocks or goes the wrong way
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
+- paint bonus level: paint when moving, not on update
+  (would avoid tricky stuff & missing paint)
+- completing paint by the left: one parasite ORed pixel artifact
 
 RANDOM ISSUES:
 
@@ -56,15 +58,13 @@ TODO:
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
 - thief attack pause length is different depending of the time
   it took to reach the first target tile
-- paint bonus level: paint when moving, not on update
-  (would avoid tricky stuff & missing paint)
 - power timeout with killed thief => should reset to standby & acquire new target (with sound)
 - demo mode
 
 CREDITS:
 
-- jotd: code and gfx/sfx conversion
-- no9: music conversion
+- Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
+- Andrzej Dobrowolski (aka no9): music conversion
 - phx: sfx/module player
 - meynaf: random routine
 - eab forum: useful advice & support
