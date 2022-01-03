@@ -94,7 +94,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -104,7 +104,7 @@ DIRECT_GAME_START
 ;BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
-NO_ENEMIES
+;NO_ENEMIES
 
 ;HIGHSCORES_TEST
 
@@ -1465,7 +1465,6 @@ update_color_addresses
 init_player:
     clr.l   previous_valid_direction
     clr.w   death_frame_offset
-	clr.b	reverse_direction_lock
 	
     tst.b   new_life_restart
     bne.b   .no_clear
@@ -3609,6 +3608,8 @@ level2_interrupt:
     bne.b   .cheat_end
     move.w  #$0FF,_custom+color    
     st.b    cheat_keys
+	; in case cheat is enabled after a legit hiscore
+	clr.b	highscore_needs_saving
 .reset_cheat
     move.l  #cheat_sequence,cheat_sequence_pointer
 .cheat_end
@@ -5600,13 +5601,6 @@ update_player
     bra.b   .no_move
 .valid_move
 	; move is valid
-	; weaken reverse direction lock if any
-	; (without that lock mechanism, player could
-	; oscillate between opposite corrective decisions)
-	tst.b	reverse_direction_lock
-	beq.b	.no_reverse_lock
-	subq.b	#1,reverse_direction_lock
-.no_reverse_lock
     ; store for later
     move.l  h_speed(a4),previous_valid_direction
     bsr animate_player    
@@ -5813,43 +5807,27 @@ CORRECTIVE_TEST_OFFSET = 8
 ; this is still not right
 dircheck_right
     move.w  v_speed(a4),d4
-    beq.b   .no_up
+    beq.b   just_rts
     move.w  d2,d0
     move.w  d3,d1
     ; align on previous x tile
     and.w   #$F8,d0
-    
-    cmp.w   #1,d4
-    bne.b   .no_down
-    addq.w  #CORRECTIVE_TEST_OFFSET,d1
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b   reverse_horiz_direction
-    rts
-.no_down
-    ; has to be "up"
-    ; up attempt
-    subq.w  #CORRECTIVE_TEST_OFFSET,d1
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b	reverse_horiz_direction
-.no_up
-    rts
+    bra.b	dircheck_horiz
 	
 dircheck_left
     move.w  v_speed(a4),d4
-    beq.b   .no_up
+    beq.b   just_rts
     move.w  d2,d0
     move.w  d3,d1
     ; align on previous x tile
     addq.w   #8,d0
-    
+dircheck_horiz    
     cmp.w   #1,d4
     bne.b   .no_down
     addq.w  #CORRECTIVE_TEST_OFFSET,d1
     bsr     is_location_legal
     tst.b   d0
-    bne.b   reverse_horiz_direction
+    bne.b   .reverse_horiz_direction
     rts
 .no_down
     ; has to be "up"
@@ -5857,23 +5835,18 @@ dircheck_left
     subq.w  #CORRECTIVE_TEST_OFFSET,d1
     bsr     is_location_legal
     tst.b   d0
-    bne.b	reverse_horiz_direction
+    bne.b	.reverse_horiz_direction
 .no_up
     rts
 
-reverse_horiz_direction
-	tst.b	reverse_direction_lock
-	;;bne.b	.out
+.reverse_horiz_direction
     ; looks like player went past the "up" intersection: change direction
     neg.w  previous_valid_direction
-	; not possible to change direction until 8 valid moves are done
-	move.b	#8,reverse_direction_lock
-.out	
 	rts
 	
 dircheck_up
     move.w  h_speed(a4),d4
-    beq.b   dd_out
+    beq.b   just_rts
     move.w  d2,d0
     move.w  d3,d1
     ; align on lower y tile
@@ -5885,7 +5858,7 @@ dircheck_down
 	LOGPC	100
 
     move.w  h_speed(a4),d4
-    beq.b   dd_out
+    beq.b   just_rts
     move.w  d2,d0
     move.w  d3,d1
     ; align on upper y tile
@@ -5898,7 +5871,7 @@ dircheck_vert
     addq.w  #CORRECTIVE_TEST_OFFSET,d0
     bsr     is_location_legal
     tst.b   d0
-    bne.b   reverse_vert_direction
+    bne.b   .reverse_vert_direction
     rts
 .no_right
     ; has to be "left"
@@ -5906,27 +5879,17 @@ dircheck_vert
     subq.w  #CORRECTIVE_TEST_OFFSET,d0
     bsr     is_location_legal
     tst.b   d0
-    bne.b   reverse_vert_direction
-dd_out
+    bne.b   .reverse_vert_direction
     rts	
 
-reverse_vert_direction
-	tst.b	reverse_direction_lock
-	;;bne.b	.out
+.reverse_vert_direction
     ; looks like player went past the "up" intersection: change direction
     neg.w  previous_valid_direction+2
-	cmp.w	#UP,direction+player
-	beq.b	.up
-	move.w	#$0F0,$DFF180
-	bra.b	.zz
-.up
-	move.w	#$F00,$DFF180
-.zz
-	; not possible to change direction until 8 valid moves are done
-	move.b	#8,reverse_direction_lock
-.out
 	rts    
 
+just_rts
+	rts
+	
 
 
 play_paint_sound
@@ -7501,8 +7464,6 @@ next_level_is_bonus_level
     dc.b    0
 nb_lives:
     dc.b    0
-reverse_direction_lock
-	dc.b	0
 smaller_vertical_paint:
     dc.b    0
 rustler_level:

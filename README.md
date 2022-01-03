@@ -40,17 +40,16 @@ HOW TO PLAY:
 
 ISSUES:
 
+- sometimes no bonus level
+- end of level + power: power music playing instead of end of level
+- level 2: sometimes still refuses to validate paint
 - no animation when falling after normal music resumes
+
+MINOR ISSUES:
+
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
-- paint bonus level: paint when moving, not on update
-  (would avoid tricky stuff & missing paint)
 - completing paint by the left: one parasite ORed pixel artifact
-
-RANDOM ISSUES:
-
-- level 3 => level 4: sometimes no bonus level
-- level 2: sometimes still refuses to validate paint
 - bonus level: music loop too long only sometimes
 
 TODO:
