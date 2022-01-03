@@ -1636,7 +1636,7 @@ draw_debug
     lsl.w   #3,d0
     add.w  #DEBUG_X,d0
     clr.l   d2
-    move.w previous_direction+2(pc),d2
+    move.w previous_valid_direction+2(pc),d2
     move.w  #3,d3
     bsr write_decimal_number
     move.l  d4,d0
@@ -5797,79 +5797,8 @@ dircheck_table
     dc.l    dircheck_up
     dc.l    dircheck_down
 
-DIRCHECK_HORIZ:MACRO
-    move.w  v_speed(a4),d4
-    beq.b   .no_up
-    move.w  d2,d0
-    move.w  d3,d1
-    ; align on next x tile
-    add.w   #\1,d0
-    and.w   #$F8,d0
-    
-    cmp.w   #1,d4
-    bne.b   .no_down
-    addq.w  #8,d1
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b   reverse_horiz_direction
-    rts
-.no_down
-    ; has to be "up"
-    ; up attempt
-    subq.w  #8,d1
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b	reverse_horiz_direction
-.no_up
-    rts
-    ENDM
+CORRECTIVE_TEST_OFFSET = 8
 
-DIRCHECK_VERT:MACRO
-    move.w  h_speed(a4),d4
-    beq.b   .no_left
-    move.w  d2,d0
-    move.w  d3,d1
-    ; align on next y tile
-    add.w   #\1,d1
-    and.w   #$F8,d1
-    
-    cmp.w   #1,d4
-    bne.b   .no_right
-    addq.w  #8,d0
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b   reverse_vert_direction
-    rts
-.no_right
-    ; has to be "left"
-    ; left attempt
-    subq.w  #8,d0
-    bsr     is_location_legal
-    tst.b   d0
-    bne.b   reverse_vert_direction
-.no_left
-    rts
-    ENDM
-
-reverse_vert_direction
-	tst.b	reverse_direction_lock
-	beq.b	.out
-    ; looks like player went past the "up" intersection: change direction
-    neg.w  previous_valid_direction+2
-	; not possible to change direction until 8 valid moves are done
-	move.b	#8,reverse_direction_lock
-.out
-	rts
-	
-reverse_horiz_direction
-	tst.b	reverse_direction_lock
-	beq.b	.out
-    ; looks like player went past the "up" intersection: change direction
-    neg.w  previous_valid_direction
-	; not possible to change direction until 8 valid moves are done
-	move.b	#8,reverse_direction_lock
-.out	
-	rts
 	
 ; d2 contains X
 ; d3 contains Y
@@ -5883,17 +5812,120 @@ reverse_horiz_direction
 ;
 ; this is still not right
 dircheck_right
-    DIRCHECK_HORIZ  -8
-
-dircheck_left
-    DIRCHECK_HORIZ  8
-
-dircheck_up
-    DIRCHECK_VERT  8
- 
-dircheck_down
-    DIRCHECK_VERT   -8
+    move.w  v_speed(a4),d4
+    beq.b   .no_up
+    move.w  d2,d0
+    move.w  d3,d1
+    ; align on previous x tile
+    and.w   #$F8,d0
     
+    cmp.w   #1,d4
+    bne.b   .no_down
+    addq.w  #CORRECTIVE_TEST_OFFSET,d1
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b   reverse_horiz_direction
+    rts
+.no_down
+    ; has to be "up"
+    ; up attempt
+    subq.w  #CORRECTIVE_TEST_OFFSET,d1
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b	reverse_horiz_direction
+.no_up
+    rts
+	
+dircheck_left
+    move.w  v_speed(a4),d4
+    beq.b   .no_up
+    move.w  d2,d0
+    move.w  d3,d1
+    ; align on previous x tile
+    addq.w   #8,d0
+    
+    cmp.w   #1,d4
+    bne.b   .no_down
+    addq.w  #CORRECTIVE_TEST_OFFSET,d1
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b   reverse_horiz_direction
+    rts
+.no_down
+    ; has to be "up"
+    ; up attempt
+    subq.w  #CORRECTIVE_TEST_OFFSET,d1
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b	reverse_horiz_direction
+.no_up
+    rts
+
+reverse_horiz_direction
+	tst.b	reverse_direction_lock
+	;;bne.b	.out
+    ; looks like player went past the "up" intersection: change direction
+    neg.w  previous_valid_direction
+	; not possible to change direction until 8 valid moves are done
+	move.b	#8,reverse_direction_lock
+.out	
+	rts
+	
+dircheck_up
+    move.w  h_speed(a4),d4
+    beq.b   dd_out
+    move.w  d2,d0
+    move.w  d3,d1
+    ; align on lower y tile
+    
+    addq.w   #8,d1
+	bra.b	dircheck_vert
+	
+dircheck_down
+	LOGPC	100
+
+    move.w  h_speed(a4),d4
+    beq.b   dd_out
+    move.w  d2,d0
+    move.w  d3,d1
+    ; align on upper y tile
+    
+    and.w   #$F8,d1
+
+dircheck_vert
+    cmp.w   #1,d4
+    bne.b   .no_right
+    addq.w  #CORRECTIVE_TEST_OFFSET,d0
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b   reverse_vert_direction
+    rts
+.no_right
+    ; has to be "left"
+    ; left attempt
+    subq.w  #CORRECTIVE_TEST_OFFSET,d0
+    bsr     is_location_legal
+    tst.b   d0
+    bne.b   reverse_vert_direction
+dd_out
+    rts	
+
+reverse_vert_direction
+	tst.b	reverse_direction_lock
+	;;bne.b	.out
+    ; looks like player went past the "up" intersection: change direction
+    neg.w  previous_valid_direction+2
+	cmp.w	#UP,direction+player
+	beq.b	.up
+	move.w	#$0F0,$DFF180
+	bra.b	.zz
+.up
+	move.w	#$F00,$DFF180
+.zz
+	; not possible to change direction until 8 valid moves are done
+	move.b	#8,reverse_direction_lock
+.out
+	rts    
 
 
 
