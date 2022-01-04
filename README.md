@@ -42,7 +42,6 @@ ISSUES:
 
 - P doesn't work for pause
 - paused: music continues but no loop
-- temp to painted: if no validation, no paint of the zone
 - sometimes no bonus level
 - no animation when falling after normal music resumes
 
@@ -50,7 +49,8 @@ MINOR ISSUES:
 
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
-- completing paint by the left: one parasite ORed pixel artifact
+- completing/starting paint by the left: one parasite ORed pixel artifact
+  (same when painting vertically and meeting horizontal intersection on the left)
 - bonus level: music loop too long only sometimes
 
 TODO:

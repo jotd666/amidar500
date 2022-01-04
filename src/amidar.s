@@ -93,7 +93,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -110,7 +110,7 @@ Execbase  = 4
 ; 
 ;START_NB_LIVES = 1
 ;START_SCORE = 1000/10
-START_LEVEL = 2
+START_LEVEL = 4
 
 ; ******************** end test defines *********************************
 
@@ -780,7 +780,10 @@ f_temp_to_unpainted
     movem.w (a7)+,d0-d1
 .nothing_to_validate  
 	; continues to painted => unpainted state now that we commited the paint
-f_painted_to_unpainted 
+f_painted_to_unpainted
+	; store previous direction, useful then in f_remains_temp to know
+	; when to stop playing paint sound (when player reverses direction)
+	move.w  player+direction(pc),previous_direction
     ; keeps painting
     bsr dot_painted_temp
     ; update compatible rectangles (intersection)
@@ -842,16 +845,29 @@ f_painted_to_unpainted
 .found    
     rts
     
-f_remains_temp
+f_remains_temp	
     ; check if direction change
     ; if no direction change, don't attempt to validate
 	; pending rectangles
     move.w  player+direction(pc),d2
-    cmp.w   previous_direction(pc),d2
+    move.w   previous_direction(pc),d3
+	cmp.w	d2,d3
 	beq.b	.out
+	; store for later
 	move.w	d2,previous_direction
+	
+	; did player reverse direction?
+	; check with a table
+	lsr.b	#2,d2
+	or.b	d3,d2
+	lea		reverse_direction_table(pc),a1
+	tst.b	(a1,d2.w)
+	beq.b	.no_reverse
+	; reverse direction: stop paint sound
+	bsr		stop_paint_sound
+.no_reverse
     ; do nothing unless some rects are pending
-    ; (means that player just turned back)
+    ; (means that player just changed direction)
     move.l  pending_paint_rectangle_pointer(pc),a2
     lea     pending_paint_rectangle_buffer,a1
     cmp.l   a2,a1
@@ -880,12 +896,23 @@ f_temp_to_painted
     move.l  pending_paint_rectangle_pointer(pc),a2
     lea     pending_paint_rectangle_buffer,a1
     cmp.l   a2,a1
-    beq.b   .out
+    beq.b   .out	; special case
 
     bsr dot_painted_full
-    bsr commit_paint
+    bra commit_paint
+	
 .out
+	; just left temporary paint for full paint but
+	; the rectangle isn't complete, there is another
+	; discontinuous segment to paint
+	
+	; just paint the zone (screen)
+	; compute A1 & D2
+	bsr		adjust_dot_paint_xyl	
+	move.w  direction(a4),d3 ; add direction
+    bsr     paint_zone
     rts
+
 
 ; < A1: rectangles to commit
 ; < A2: max rect pointer to stop to
@@ -959,9 +986,17 @@ f_unpainted_to_temp
     nop
     rts
 f_painted_to_temp
-    blitz
-    nop
-    nop
+	; can happen when reverting from an incompletely painted
+	; rectangle with one remaining discontinuous segment
+	; which is a rare case but happens
+	;
+	; ->*
+	; F T T T T F
+	; F         F
+	; F         F
+	; F U U U U F
+	
+	; nothing to do
     rts
     
 f_unknown_transition
@@ -993,34 +1028,14 @@ dot_painted_temp
     
     move.b  #T,d0
     bsr     dot_painted_shared
-    
-    lea	screen_data+SCREEN_PLANE_SIZE,a1
+	
     move.w  d2,d0
     move.w  d3,d1
-    addq.w  #8,d0
-    addq.w  #1,d1
-    cmp.w   #UP,direction(a4)
-    beq.b   .radd9
-    cmp.w   #DOWN,direction(a4)
-    beq.b   .radd8
-    ; horizontal
-    addq.w  #5,d1
-    cmp.w   #RIGHT,direction(a4)
-    bne.b   .noradd
-    subq.w  #1,d0   ; to right: 8 pixels left shift
-    bra.b   .noradd
-.radd8
-    ; vertical down
-    addq.l  #1,d1
-    bra.b   .noradd
-.radd9
-    ; vertical up
-    addq.l  #2,d1
-.noradd
 
-    ADD_XY_TO_A1    a0
+	bsr		adjust_dot_paint_xyl	
     
     move.l  d4,a0
+    beq.b	.zz
     bsr     tile_painted
 .zz
     tst.l   d5
@@ -1046,7 +1061,6 @@ dot_painted_temp
 dot_painted_full
     movem.l d0-d6/a0-a1,-(a7)
 
-
     move.b  #F,d0    
     bsr     dot_painted_shared
     
@@ -1064,6 +1078,37 @@ dot_painted_shared
     moveq.l #1,d0
     bra.b add_to_score
 
+; < D0: X
+; < D1: Y
+; < A4: player
+; > A1: paint address
+; > D2: height
+adjust_dot_paint_xyl    
+    lea	screen_data+SCREEN_PLANE_SIZE,a1
+    addq.w  #8,d0
+    addq.w  #1,d1
+    cmp.w   #UP,direction(a4)
+    beq.b   .radd9
+    cmp.w   #DOWN,direction(a4)
+    beq.b   .radd8
+    ; horizontal
+    addq.w  #5,d1
+    cmp.w   #RIGHT,direction(a4)
+    bne.b   .noradd
+    subq.w  #1,d0   ; to right: 8 pixels left shift
+    bra.b   .noradd
+.radd8
+    ; vertical down
+    addq.l  #1,d1
+    bra.b   .noradd
+.radd9
+    ; vertical up
+    addq.l  #2,d1
+.noradd
+
+    ADD_XY_TO_A1    a0
+	rts
+	
     
 clear_playfield_planes
     lea screen_data,a1
@@ -3368,7 +3413,7 @@ draw_dot:
     rts
 
 ; < A1 address
-; < D2: X
+; < D2: height
 ; < D3 direction
 
 paint_zone:
@@ -3392,7 +3437,9 @@ paint_zone:
     beq.b   .cont
     cmp.w #RIGHT,d3
     beq.b   .right
-    and.b   #$f0,d0 ; remove horizontal bar
+	; vertical
+    and.b   #$e0,d0 ; remove horizontal rightmost pixels
+	; doesn't remove parasite leftmost pixels
     bra.b   .cont
 .right
 
@@ -3413,16 +3460,35 @@ unpaint_zone:
     ; probably faster than recomputing that from X,Y
     movem.l d0/d4/a0/a2,-(a7)
     bsr prepare_paint_zone
+	; A1: screen
+	; A2: paint backup plane
 .loop
     move.b  (a0),d0
+	not.b	d0
+	
     cmp.w   #LEFT,d3
     beq.b   .horiz
     cmp.w   #RIGHT,d3
     beq.b   .horiz
-    and.b   #$f0,d0 ; remove horizontal bar
+    and.b   #$0f,d0 ; remove horizontal bar (negated)
 .horiz
-    eor.b  d0,(a1)
-    eor.b  d0,(a2)
+	; special case to consider if rollbacking with left direction
+	; (painting has been done from right, remember)
+	; we don't want to remove paint from the vertical painted segment
+	; if it's already painted
+    cmp.w   #RIGHT,d3
+    bne.b   .no_right
+	; checking if above or below is painted. If painted, don't
+	; clear the 2x2 pixels of the intersection
+	btst	#6,(NB_BYTES_PER_LINE*2,a2)
+	bne.b	.enhance_mask
+	btst	#6,(-NB_BYTES_PER_LINE*2,a2)
+	beq.b	.no_right
+.enhance_mask
+	or.b	#$E0,d0
+.no_right
+    and.b  d0,(a1)
+    and.b  d0,(a2)
     add.w   d4,a0
     add.w   d4,a1
     add.w   d4,a2
@@ -5868,8 +5934,6 @@ dircheck_up
 	bra.b	dircheck_vert
 	
 dircheck_down
-	LOGPC	100
-
     move.w  h_speed(a4),d4
     beq.b   just_rts
     move.w  d2,d0
@@ -7800,6 +7864,15 @@ divisible_by_5_table
     dc.b    0,0,0,0
     ENDR
     
+; ORed previous/current direction masks which allow
+; a quick check to see if player just reversed direction
+reverse_direction_table
+	;		R,L,U,D
+	dc.b	0,1,0,0	; R	
+	dc.b	1,0,0,0	; L
+	dc.b	0,0,0,1	; U
+	dc.b	0,0,1,0	; D
+	
 jump_height_table
 	dc.b	-2,-2,-2,-2,-2,-2,-1,-2,-1,-2,-1,-1,-1,0,-1,-1,0,0,0,-1
 	dc.b	1,0,0,0,1,1,0,1,1,1,2,1,2,1,2,2,2,2,2,2
