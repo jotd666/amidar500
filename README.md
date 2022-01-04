@@ -26,7 +26,7 @@ CONTROLS:
 - joystick directions/arrows: move player
 - space/fire button: start game
 - P/second button: pause
-- F10 (or quitkey): quit
+- F10 (or quitkey): quit (and save scores)
 
 HOW TO PLAY:
 
@@ -40,9 +40,10 @@ HOW TO PLAY:
 
 ISSUES:
 
+- P doesn't work for pause
+- paused: music continues but no loop
+- temp to painted: if no validation, no paint of the zone
 - sometimes no bonus level
-- end of level + power: power music playing instead of end of level
-- level 2: sometimes still refuses to validate paint
 - no animation when falling after normal music resumes
 
 MINOR ISSUES:
@@ -64,7 +65,7 @@ CREDITS:
 
 - Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
 - Andrzej Dobrowolski (aka no9): music conversion
-- phx: sfx/module player
+- Frank Wille (aka phx): sfx/module player
 - meynaf: random routine
 - eab forum: useful advice & support
 - Superjustinbros: sprite rips https://www.spriters-resource.com/arcade/amidar

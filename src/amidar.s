@@ -85,7 +85,6 @@ INTERRUPTS_ON_MASK = $E038
 
 StartList = 38
 
-
 Execbase  = 4
 
 
@@ -111,7 +110,7 @@ Execbase  = 4
 ; 
 ;START_NB_LIVES = 1
 ;START_SCORE = 1000/10
-;START_LEVEL = 5
+START_LEVEL = 2
 
 ; ******************** end test defines *********************************
 
@@ -863,20 +862,31 @@ f_remains_temp
     bra commit_paint
     
 f_temp_to_painted
+	; if entering a painted zone in a different tile
+	; than when exiting it in the first place, then validate paint
     bsr     stop_paint_sound
+	
+	move.w	d0,d2
+	move.w	d1,d3
+	lsr.w	#3,d2
+	lsr.w	#3,d3
+	cmp.w	leaving_paint_tile_x(pc),d2
+	bne.b	.no_rollback
+	cmp.w	leaving_paint_tile_y(pc),d3
+	beq.b	rollback_paint	
+.no_rollback
     ; cancels temp paint immediately
     ; unless some full paints are pending
     move.l  pending_paint_rectangle_pointer(pc),a2
     lea     pending_paint_rectangle_buffer,a1
     cmp.l   a2,a1
-    bne.b   .validated
-    ; nothing was validated during temp paint: rollback
-    bra rollback_paint
-.validated
+    beq.b   .out
+
     bsr dot_painted_full
     bsr commit_paint
+.out
     rts
-    
+
 ; < A1: rectangles to commit
 ; < A2: max rect pointer to stop to
 commit_paint
@@ -906,6 +916,11 @@ commit_paint
  
 f_unpainted_to_painted
 f_remains_painted
+	; store the tile we're starting from
+	lsr.w	#3,d2
+	lsr.w	#3,d3
+	move.w	d2,leaving_paint_tile_x
+	move.w	d3,leaving_paint_tile_y
 ;init_compatible_rectangles
     ; compute the initial compatible rectangles all the time
 	; computing them when leaving the painted zone is too late
@@ -1030,10 +1045,7 @@ dot_painted_temp
 
 dot_painted_full
     movem.l d0-d6/a0-a1,-(a7)
-    
-    ; save X/Y
-    move.w  d0,d2
-    move.w  d1,d3
+
 
     move.b  #F,d0    
     bsr     dot_painted_shared
@@ -1050,10 +1062,8 @@ dot_painted_shared
     bsr play_paint_sound
     ; add 10 to the score
     moveq.l #1,d0
-    bra add_to_score
+    bra.b add_to_score
 
-    
-    
     
 clear_playfield_planes
     lea screen_data,a1
@@ -1463,6 +1473,8 @@ update_color_addresses
     rts
     
 init_player:
+	clr.w	leaving_paint_tile_x
+	clr.w	leaving_paint_tile_y
     clr.l   previous_valid_direction
     clr.w   death_frame_offset
 	
@@ -3630,8 +3642,10 @@ level2_interrupt:
     bne.b   .no_pause
     cmp.b   #$19,d0
     bne.b   .no_pause
-    tst.b   music_playing
-    bne.b   .no_pause
+	; in that game we need pause even if music
+	; is playing, obviously
+;    tst.b   music_playing
+;    bne.b   .no_pause
     eor.b   #1,pause_flag
 .no_pause
     tst.w   cheat_keys
@@ -3788,7 +3802,7 @@ level3_interrupt:
     btst    #JPB_BTN_BLU,d2
     bne.b   .no_second
 
-    ; no pause if not in game or music is playing
+    ; no pause if not in game
     cmp.w   #STATE_PLAYING,current_state
     bne.b   .no_second
     tst.b   demo_mode
@@ -5701,10 +5715,9 @@ update_player
     move.l  (a1,d0.w),a1
     move.w  d2,d0
     move.w  d3,d1
-    jsr     (a1)
-    
-    rts    
-
+	
+    jmp     (a1)
+        
 
 .no_move
     tst.b   rustler_level
@@ -6249,7 +6262,10 @@ animate_player
     rts
 
 
-level_completed: 
+level_completed:
+	; avoids bonus music when level is completed with
+	; one of the corners
+	clr.w	can_eat_enemies_mode_pending
     bsr stop_sounds
     moveq.l  #8,d0
     bsr play_music
@@ -7934,6 +7950,11 @@ enemies:
     ds.b    Enemy_SIZEOF*7
     even
 
+leaving_paint_tile_x
+	dc.w	0
+leaving_paint_tile_y
+	dc.w	0
+	
 rollback_paint_zone_pointer:
     dc.l    0
 rollback_rectangle_pointer:
