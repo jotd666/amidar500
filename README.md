@@ -40,8 +40,6 @@ HOW TO PLAY:
 
 ISSUES:
 
-- P doesn't work for pause
-- paused: music continues but no loop
 - sometimes no bonus level
 - no animation when falling after normal music resumes
 

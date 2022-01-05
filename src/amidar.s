@@ -103,7 +103,7 @@ DIRECT_GAME_START
 ;BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
-;NO_ENEMIES
+NO_ENEMIES
 
 ;HIGHSCORES_TEST
 
@@ -112,14 +112,16 @@ DIRECT_GAME_START
 ;START_SCORE = 1000/10
 START_LEVEL = 4
 
-; ******************** end test defines *********************************
-
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
 ; a1 points to the end of the table
 ; 100 means 100 seconds of recording at least (not counting the times where
 ; the player (me :)) isn't pressing any direction at all.
 ;RECORD_INPUT_TABLE_SIZE = 100*ORIGINAL_TICKS_PER_SEC
+
+; ******************** end test defines *********************************
+
+; don't change the values below, change them above to test!!
 
 	IFD	HIGHSCORES_TEST
 EXTRA_LIFE_SCORE = 3000/10
@@ -132,7 +134,6 @@ DEFAULT_HIGH_SCORE = 10000/10
 	ENDC
 NB_HIGH_SCORES = 10
 
-; don't change the values below, change them above to test!!
 	IFND	START_SCORE
 START_SCORE = 0
 	ENDC
@@ -2745,8 +2746,6 @@ clear_plane_any_cpu_any_height
     rts
 
 .even
-	blitz
-	nop
     ; even address, big width: can use longword erase
     move.w  d3,d0
     lsr.w   #2,d2
@@ -3712,7 +3711,7 @@ level2_interrupt:
 	; is playing, obviously
 ;    tst.b   music_playing
 ;    bne.b   .no_pause
-    eor.b   #1,pause_flag
+    bsr	toggle_pause
 .no_pause
     tst.w   cheat_keys
     beq.b   .no_playing
@@ -3805,6 +3804,15 @@ level2_interrupt:
 	movem.l	(a7)+,d0/a0/a5
 	move.w	#8,_custom+intreq
 	rte
+	
+toggle_pause
+	eor.b   #1,pause_flag
+	beq.b	.out
+	bsr		stop_sounds
+	move.w	#1,start_music_countdown	; music will resume when unpaused
+.out
+	rts
+	
     
 ; < D0: numbers of vertical positions to wait
 beamdelay
@@ -3874,7 +3882,7 @@ level3_interrupt:
     tst.b   demo_mode
     bne.b   .no_second
     
-    eor.b   #1,pause_flag
+    bsr		toggle_pause
 .no_second
     lea keyboard_table(pc),a0
     tst.b   ($40,a0)    ; up key
@@ -4158,7 +4166,7 @@ update_all
     bsr     play_music
     move.w  #ORIGINAL_TICKS_PER_SEC*5,d0
 .no_delay
-    move.w  d0,.start_music_countdown
+    move.w  d0,start_music_countdown
     ; for demo mode
     addq.w  #1,record_input_clock
 
@@ -4183,11 +4191,11 @@ update_all
     move.w   power_state_counter(pc),d0
     bne.b   .power_music
     
-    move.w  .start_music_countdown(pc),d0
+    move.w  start_music_countdown(pc),d0
     subq.w  #1,d0    ; starts after a few seconds
     bne.b   .no_start_music
 .normal_music
-    clr.w   .start_music_countdown
+    clr.w   start_music_countdown
     tst.b   rustler_level
     beq.b   .copier_level
     ; ruslter level
@@ -4200,7 +4208,7 @@ update_all
     bsr play_music
     move.w  #SONG_1_LENGTH,d0
 .no_start_music
-    move.w  d0,.start_music_countdown
+    move.w  d0,start_music_countdown
     cmp.w   #ORIGINAL_TICKS_PER_SEC,d0
     bne.b   .music_out
     tst.b   .intro_music_played
@@ -4239,7 +4247,7 @@ update_all
 
     tst.w   player_killed_timer
     bmi.b   .normal_music     ; player killed, no music management
-    move.w  #1,.start_music_countdown       ; restart music as soon as new life starts
+    move.w  #1,start_music_countdown       ; restart music as soon as new life starts
     bra.b   .music_out
 .power_continues
 
@@ -4295,7 +4303,7 @@ BLINK_BASE_TIME = POWER_SONG_LENGTH+POWER_SONG_LENGTH/2
 .intro_music_played
     dc.b    0
     even
-.start_music_countdown
+start_music_countdown
     dc.w    0
 
 COLLISION_SHIFTING_PRECISION = 3
