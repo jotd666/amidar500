@@ -40,15 +40,16 @@ HOW TO PLAY:
 
 ISSUES:
 
+- demo mode: highscore flash => game should show title instead instead of demo
 - sometimes no bonus level
 - no animation when falling after normal music resumes
+- paint from right: missing pixel
+- paint: missing bottom right corner
 
 MINOR ISSUES:
 
-- undo_paint: not perfect but pretty close
-- paint: missing bottom right corner
+- undo_paint: not perfect sometimes missing paint removal on 2x2 zones
 - bonus level: music loop too long only sometimes
-- check bonus / intro maze for shifts
 
 TODO:
 
@@ -56,7 +57,6 @@ TODO:
 - thief attack pause length is different depending of the time
   it took to reach the first target tile
 - power timeout with killed thief => should reset to standby & acquire new target (with sound)
-- demo mode
 
 CREDITS:
 

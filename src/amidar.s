@@ -93,7 +93,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -110,7 +110,7 @@ DIRECT_GAME_START
 ; 
 ;START_NB_LIVES = 1
 ;START_SCORE = 1000/10
-START_LEVEL = 4
+;START_LEVEL = 1
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -118,6 +118,8 @@ START_LEVEL = 4
 ; 100 means 100 seconds of recording at least (not counting the times where
 ; the player (me :)) isn't pressing any direction at all.
 ;RECORD_INPUT_TABLE_SIZE = 100*ORIGINAL_TICKS_PER_SEC
+; 1 or 2, 2 is default, 1 is to record level 1 demo moves
+;INIT_DEMO_LEVEL_NUMBER = 1
 
 ; ******************** end test defines *********************************
 
@@ -134,6 +136,10 @@ DEFAULT_HIGH_SCORE = 10000/10
 	ENDC
 NB_HIGH_SCORES = 10
 
+	IFND	INIT_DEMO_LEVEL_NUMBER
+INIT_DEMO_LEVEL_NUMBER = 2
+	ENDC
+	
 	IFND	START_SCORE
 START_SCORE = 0
 	ENDC
@@ -141,7 +147,11 @@ START_SCORE = 0
 START_NB_LIVES = 3+1
 	ENDC
 	IFND	START_LEVEL
+		IFD		RECORD_INPUT_TABLE_SIZE
+START_LEVEL = INIT_DEMO_LEVEL_NUMBER
+		ELSE
 START_LEVEL = 1
+		ENDC
 	ENDC
 	
 N = 0;  if no maze, 
@@ -232,6 +242,8 @@ RIGHT = 0
 LEFT = 1<<2
 UP = 2<<2
 DOWN = 3<<2
+; one extra enumerate for fire (demo mode)
+FIRE = 4
 
 ; possible direction bits, clockwise
 DIRB_RIGHT = 0
@@ -423,7 +435,7 @@ Start:
     dbf d4,.mkcl
     
 
-    lea game_palette(pc),a0
+    lea game_palette,a0
     lea _custom+color,a1
     move.w  #31,d0
 .copy
@@ -524,13 +536,11 @@ intro:
     lea _custom,a5
     move.w  #$7FFF,(intena,a5)
 
-   
     bsr wait_bof
     
     bsr draw_score
     tst.b   next_level_is_bonus_level
     beq.b   .normal_level
-
 
     bsr init_player     ; at least reset 3 stars
 
@@ -1165,16 +1175,14 @@ clear_maze_plane
 
     
 init_new_play:
+	clr.b	previous_move
     clr.l   state_timer
     IFD BONUS_SCREEN_TEST
-    move.b  #1,next_level_is_bonus_level
+    st.b	next_level_is_bonus_level
     ELSE
     clr.b   next_level_is_bonus_level
     ENDC
-    
-    ; global init at game start
-    move.l  #demo_moves,record_data_pointer
-    clr.l   replayed_input_state
+ 
     clr.w   can_eat_enemies_mode_pending
     move.b  #START_NB_LIVES,nb_lives
     clr.b   new_life_restart
@@ -1182,6 +1190,29 @@ init_new_play:
     clr.b    music_played
     move.l  #EXTRA_LIFE_SCORE,score_to_track
     move.w  #START_LEVEL-1,level_number
+ 
+    ; global init at game start
+	
+	tst.b	demo_mode
+	beq.b	.no_demo
+	; toggle demo
+	move.w	demo_level_number(pc),d0
+	move.w	d0,level_number
+	btst	#0,d0
+	beq.b	.demo_level_1
+	lea		demo_moves_2,a0
+	lea		demo_moves_2_end,a1
+	bra.b	.rset
+.demo_level_1	
+	lea		demo_moves_1,a0
+	lea		demo_moves_1_end,a1
+.rset
+	move.l	a0,record_data_pointer
+	move.l	a1,record_data_end
+	eor.b	#1,d0
+	move.w	d0,demo_level_number
+	
+.no_demo
     clr.b   bonus_sprites
     move.l  #START_SCORE,score
     clr.l   previous_score
@@ -1195,7 +1226,7 @@ init_level:
     ; sets initial number of dots
 
     clr.b    rustler_level
-    lea rectlist_1(pc),a0
+    lea rectlist_1,a0
     ; level
     move.w  level_number(pc),d2
     btst    #0,d2
@@ -1573,7 +1604,7 @@ init_player:
 .played
     IFD    RECORD_INPUT_TABLE_SIZE
     move.l  #record_input_table,record_data_pointer ; start of table
-    clr.l   prev_record_joystick_state
+    move.l  #-1,prev_record_joystick_state	; impossible previous value, force record
     clr.l   previous_random
     ENDC
 
@@ -2188,10 +2219,6 @@ PLAYER_ONE_Y = 102-14
     move.l  d2,high_score
     bsr draw_high_score
 .no_score_update
-    tst.b   demo_mode
-    beq.b   .no_demo
-    bsr write_game_over
-.no_demo
 .draw_complete
     rts
 
@@ -2209,21 +2236,14 @@ draw_high_score
     move.w  #24+32,d1
     move.w  #6,d3
     move.w  #$FFF,d4    
-    bsr write_color_decimal_number
+    bra write_color_decimal_number
 
 
-    rts
-
-    
-write_game_over
-    move.w  #72,d0
-    move.w  #136,d1
-    move.w  #$0f00,d2   ; red
-    lea game_over_string(pc),a0
-    bra write_color_string
     
 ; < D0: score (/10)
 add_to_score:
+	tst.b	demo_mode
+	bne.b	.below
     move.l  score(pc),previous_score
 
     add.l   d0,score
@@ -2675,7 +2695,11 @@ intro_state_change
     even
     
 draw_title
+    lea    .alt_title(pc),a0
+	tst.w	demo_level_number
+	beq.b	.w
     lea    .title(pc),a0
+.w
     move.w  #64,d0
     move.w  #72-24,d1
     move.w  #$0ff0,d2
@@ -2683,6 +2707,8 @@ draw_title
     bra.b   draw_copyright
 
 .title
+    dc.b    '-  AMIDAR  -',0
+.alt_title
     dc.b    '-  AMIGAR  -',0
     even
 draw_copyright
@@ -3266,7 +3292,7 @@ draw_bonus_maze:
     
     ; banana, we're going to use a sprite
     move.w  banana_x(pc),d0
-    move.w  #200,d1
+    move.w  #199,d1
     bsr store_sprite_pos
 
     ; write control word
@@ -3520,7 +3546,7 @@ prepare_paint_zone
 ; < A1 address
 clear_dot
     REPT    6
-    clr.b  (NB_BYTES_PER_LINE*REPTN,a1)
+    and.b  #$1,(NB_BYTES_PER_LINE*REPTN,a1)
     bclr.b  #0,(NB_BYTES_PER_LINE*REPTN-1,a1)
     ENDR
     
@@ -4164,12 +4190,10 @@ update_all
     move.w  #ORIGINAL_TICKS_PER_SEC*5,d0
 .no_delay
     move.w  d0,start_music_countdown
+.no_first_tick
     ; for demo mode
     addq.w  #1,record_input_clock
 
-.no_first_tick
-
-.dec
     bsr update_player
     
     IFND    NO_ENEMIES
@@ -4480,9 +4504,8 @@ update_intro_screen
     cmp.l   #ORIGINAL_TICKS_PER_SEC*22,d0
     bne.b   .no3end
 .reset_first
-    ; screen 3 end => demo mode TODO
-    clr.l   state_timer
-    bra.b   .first
+    ; screen 3 end => demo mode
+    bra.b	.demo
 .no3end
     move.l  d0,state_timer
     
@@ -4591,7 +4614,7 @@ update_intro_screen
 .demo
     ; change state
     clr.l   state_timer
-    move.w  #STATE_GAME_START_SCREEN,current_state
+    move.w  #STATE_PLAYING,current_state
     ; in demo mode
     st.b    demo_mode
     rts
@@ -5575,18 +5598,23 @@ update_player
     ; demo running
     ; read next timestamp
     move.l  record_data_pointer(pc),a0
-    cmp.l   #demo_moves_end,a0
+    cmp.l   record_data_end(pc),a0
     bcc.b   .no_demo        ; no more input
     move.b  (a0),d2
     lsl.w   #8,d2
     move.b  (1,a0),d2
     ;;add.b   #3,d2   ; correction???
     cmp.w  record_input_clock(pc),d2
-    bne.b   .no_demo        ; don't do anything now
+    bne.b   .repeat        ; don't do anything now
     ; new event
     move.b  (2,a0),d2
     addq.w  #3,a0
     move.l  a0,record_data_pointer
+	move.b	d2,previous_move
+	bra.b	.cont
+.repeat
+	move.b	previous_move(pc),d2
+.cont
     btst    #LEFT>>2,d2
     beq.b   .no_auto_left
     bset    #JPB_BTN_LEFT,d0
@@ -5605,8 +5633,10 @@ update_player
     beq.b   .no_auto_down
     bset    #JPB_BTN_DOWN,d0
 .no_auto_down
-    ; set replayed input state
-    move.l  d0,replayed_input_state
+    btst    #FIRE,d2
+    beq.b   .no_auto_fire
+    bset    #JPB_BTN_RED,d0
+.no_auto_fire
     
     ; read live or recorded controls
 .no_demo
@@ -6278,15 +6308,17 @@ fill_rectangle:
     
     IFD    RECORD_INPUT_TABLE_SIZE
 record_input:
-    tst.l   d0
-    bne.b   .store
-    ; 0 twice: ignore (saves space)
-    cmp.l   prev_record_joystick_state(pc),d0
+	cmp.l	prev_record_joystick_state(pc),d0
+	beq.b	.no_input	; no need to re-record same input
+	tst.l	d0
+	bne.b	.store
+    ; no input twice: ignore (saves space, same result)
+    tst.l   prev_record_joystick_state
     beq.b   .no_input
 .store
     move.l  d0,prev_record_joystick_state
     clr.b   d1
-    ; now store clock & joystick state, "compressed" to 4 bits (up,down,left,right)
+    ; now store clock & joystick state, "compressed" to 5 bits (up,down,left,right,fire)
     btst    #JPB_BTN_RIGHT,d0
     beq.b   .norr
     bset    #RIGHT>>2,d1
@@ -6305,6 +6337,10 @@ record_input:
     beq.b   .nord
     bset    #DOWN>>2,d1
 .nord
+    btst    #JPB_BTN_RED,d0
+    beq.b   .norf
+    bset    #FIRE,d1
+.norf
     move.l record_data_pointer(pc),a0
     cmp.l   #record_input_table+RECORD_INPUT_TABLE_SIZE-4,a0
     bcc.b   .no_input       ; overflow!!!
@@ -6312,6 +6348,7 @@ record_input:
     ; store clock
     move.b  record_input_clock(pc),(a0)+
     move.b  record_input_clock+1(pc),(a0)+
+	; store move
     move.b  d1,(a0)+
     ; update pointer
     move.l  a0,record_data_pointer
@@ -7396,12 +7433,15 @@ previous_random
     dc.l    0
 joystick_state
     dc.l    0
-replayed_input_state
-    dc.l    0
 record_data_pointer
     dc.l    0
+record_data_end
+	dc.l	0
 record_input_clock
-    dc.w    0    
+    dc.w    0
+previous_move
+	dc.b	0
+	even
     IFD    RECORD_INPUT_TABLE_SIZE
 prev_record_joystick_state
     dc.l    0
@@ -7455,6 +7495,8 @@ extra_life_sound_timer
 ; 0: level 1
 level_number:
     dc.w    0
+demo_level_number:
+    dc.w    INIT_DEMO_LEVEL_NUMBER-1
 enemy_kill_timer
     dc.w    0
 player_killed_timer:
@@ -7645,11 +7687,6 @@ player_kill_anim_table:
 cheat_sequence
     dc.b    $26,$18,$14,$22,0
     even
-; table with 2 bytes: 60hz clock, 1 byte: move mask for the demo
-demo_moves:
-    incbin  "moves.bin"
-demo_moves_end:
-    even
 
 copier_dir_table
     dc.l    copier_anim_right,copier_anim_left,copier_anim_up,copier_anim_down
@@ -7802,6 +7839,8 @@ score_value_table
     
 ; < D0: track start number
 play_music
+	tst.b	demo_mode
+	bne.b	.out
     movem.l d0-a6,-(a7)
     lea _custom,a6
     lea music,a0
@@ -7816,6 +7855,7 @@ play_music
     bsr _mt_start
     st.b    music_playing
     movem.l (a7)+,d0-a6
+.out
     rts
     
 ; < A0: sound struct
@@ -8052,9 +8092,19 @@ floppy_file
     dc.b    "floppy",0
 maze_dump_file
     dc.b    "maze.bin",0
-    even    
+    even
+
+; table with 2 bytes: 60hz clock, 1 byte: move mask for the demo
+demo_moves_1:
+    incbin  "moves_1.bin"
+demo_moves_1_end:
+demo_moves_2:
+    incbin  "moves_2.bin"
+demo_moves_2_end:
+    even
+	
 ; BSS --------------------------------------
-    SECTION  S2,BSS
+    SECTION  S3,BSS
 HWSPR_TAB_XPOS:	
 	ds.l	512			
 
@@ -8092,10 +8142,10 @@ player_move_buffer
     even
     
     
-    SECTION  S3,CODE
+    SECTION  S4,CODE
     include ptplayer.s
 
-    SECTION  S4,DATA,CHIP
+    SECTION  S5,DATA,CHIP
 ; main copper list
 coplist
    dc.l  $01080000
