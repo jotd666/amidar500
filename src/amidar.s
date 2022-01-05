@@ -103,7 +103,7 @@ DIRECT_GAME_START
 ;BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
-NO_ENEMIES
+;NO_ENEMIES
 
 ;HIGHSCORES_TEST
 
@@ -1863,7 +1863,7 @@ draw_enemies:
 
 .draw_enemy
     move.w  xpos(a0),d0
-    addq.w  #2,d0       ; compensate
+    addq.w  #1,d0       ; compensate
     move.w  ypos(a0),d1
     addq.w  #3,d1   ; compensate
     ; center => top left
@@ -3024,23 +3024,21 @@ draw_maze:
     
     lea screen_data+MAZE_ADDRESS_OFFSET,a1
     
-    move.b #$7F,d0
-    move.b  d0,(NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
-    move.b  d0,(NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
-    move.b  d0,(NB_BYTES_PER_LINE,a1)
-    move.b  d0,(a1)+
+    st.b  (NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
+    st.b  (NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
+    st.b  (NB_BYTES_PER_LINE,a1)
+    st.b  (a1)+
 
     ; draw frame
     move.w  #NB_BYTES_PER_MAZE_LINE-3,d1
-    move.w  #-1,d0
 .hloop
-    move.b  d0,(NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
-    move.b  d0,(NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
-    move.b  d0,(NB_BYTES_PER_LINE,a1)
-    move.b  d0,(a1)+
+    st.b  (NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
+    st.b  (NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
+    st.b  (NB_BYTES_PER_LINE,a1)
+    st.b  (a1)+
     dbf     d1,.hloop
     ; rightmost end, 2 bits not drawn
-    move.b  #$E0,d0
+    move.b  #$C0,d0
     move.b  d0,(NB_BYTES_PER_LINE*(MAZE_HEIGHT+1),a1)
     move.b  d0,(NB_BYTES_PER_LINE*MAZE_HEIGHT,a1)
     move.b  d0,(NB_BYTES_PER_LINE,a1)
@@ -3152,8 +3150,6 @@ draw_maze:
 draw_horizontal_segment
     movem.l d0-d4/a0-a3,-(a7)
     lea mul40_table(pc),a2
-    moveq   #-1,d2
-    move.b  #$7F,d3
     lsr.w   #3,d0   ; 8 divide
     
     ; draw horizontal separation
@@ -3171,19 +3167,17 @@ draw_horizontal_segment
     movem.l (a7)+,d0-d4/a0-a3
     rts
 .draw
-    or.b    d3,(A1,d1)
-    or.b    d2,(1,A1,d1)
-    or.b    d2,(2,A1,d1)
-    or.b    d2,(3,A1,d1)
-    or.b    d2,(4,A1,d1)
-    or.b    #$80,(5,A1,d1)
+    st.b    (A1,d1)
+    st.b    (1,A1,d1)
+    st.b    (2,A1,d1)
+    st.b    (3,A1,d1)
+    st.b    (4,A1,d1)
     add.w   #NB_BYTES_PER_LINE,d1
-    or.b    d3,(A1,d1)
-    or.b    d2,(1,A1,d1)
-    or.b    d2,(2,A1,d1)
-    or.b    d2,(3,A1,d1)
-    or.b    d2,(4,A1,d1)
-    or.b    #$80,(5,A1,d1)
+    st.b    (A1,d1)
+    st.b    (1,A1,d1)
+    st.b    (2,A1,d1)
+    st.b    (3,A1,d1)
+    st.b    (4,A1,d1)
     rts
     
 draw_intro_maze:
@@ -3294,7 +3288,7 @@ draw_bonus_maze:
 
 ; used for all mazes
 draw_maze_vertical_edges
-    move.b  #$60,d0
+    move.b  #$60<<1,d0
 .vloop
     or.b    d0,(a1)
     or.b    d0,(5,a1)
@@ -3405,10 +3399,12 @@ draw_dots:
     
 
 draw_dot:
-    move.b  #%01100000,(a1)
-    move.b  #%11110000,(NB_BYTES_PER_LINE,a1)
-    move.b  #%11110000,(NB_BYTES_PER_LINE*2,a1)
-    move.b  #%01100000,(NB_BYTES_PER_LINE*3,a1)
+    move.b  #%11000000,(a1)
+    move.b  #%11100000,(NB_BYTES_PER_LINE,a1)
+    move.b  #%11100000,(NB_BYTES_PER_LINE*2,a1)
+    move.b  #%11000000,(NB_BYTES_PER_LINE*3,a1)
+    or.b  #1,(NB_BYTES_PER_LINE-1,a1)
+    or.b  #1,(NB_BYTES_PER_LINE*2-1,a1)
     rts
 
 ; < A1 address
@@ -3437,7 +3433,7 @@ paint_zone:
     cmp.w #RIGHT,d3
     beq.b   .right
 	; vertical
-    and.b   #$e0,d0 ; remove horizontal rightmost pixels
+    and.b   #$C0,d0 ; remove horizontal rightmost pixels
 	; doesn't remove parasite leftmost pixels
     bra.b   .cont
 .right
@@ -3525,6 +3521,7 @@ prepare_paint_zone
 clear_dot
     REPT    6
     clr.b  (NB_BYTES_PER_LINE*REPTN,a1)
+    bclr.b  #0,(NB_BYTES_PER_LINE*REPTN-1,a1)
     ENDR
     
     rts
@@ -6193,27 +6190,26 @@ store_rectangle_pending_paint_address
 ; draw a line inside the rectangle
 
 DRAW_RECT_LINE:MACRO
-    or.b  #$1F,(\2,\1)
+    or.b  #$3F,(\2,\1)
     st  (\2+1,\1)
     st   (\2+2,\1)
     st  (\2+3,\1)
     st  (\2+4,\1)
-    or.b  #$80,(\2+5,\1)
     ENDM
     
 ; draw horizontal outline
 DRAW_RECT_HORIZ_OUTLINE:MACRO
-    or.b  #$3F,(\2,\1)
+    or.b  #$3F<<1,(\2,\1)
     st  (\2+1,\1)
     st  (\2+2,\1)
     st  (\2+3,\1)
     st  (\2+4,\1)
-    or.b  #$E0,(\2+5,\1)
+    or.b  #$C0,(\2+5,\1)
     ENDM
 ; draw vertical outline
 DRAW_RECT_VERT_OUTLINE:MACRO
-    or.b  #$60,(\2,\1)
-    or.b  #$60,(\2+5,\1)
+    or.b  #$60<<1,(\2,\1)
+    or.b  #$60<<1,(\2+5,\1)
     ENDM
     
 ; < A0: pointer to rectangle structure
@@ -6410,7 +6406,7 @@ draw_player:
 .pacblit
 
     move.w  xpos(a2),d3    
-	addq.w	#2,d3	; X-offset
+	addq.w	#1,d3	; X-offset
     move.w  ypos(a2),d4
     ; center => top left
     moveq.l #-1,d2 ; mask

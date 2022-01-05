@@ -47,9 +47,8 @@ MINOR ISSUES:
 
 - undo_paint: not perfect but pretty close
 - paint: missing bottom right corner
-- completing/starting paint by the left: one parasite ORed pixel artifact
-  (same when painting vertically and meeting horizontal intersection on the left)
 - bonus level: music loop too long only sometimes
+- check bonus / intro maze for shifts
 
 TODO:
 
