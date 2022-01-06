@@ -928,7 +928,10 @@ f_temp_to_painted
 
 ; < A1: rectangles to commit
 ; < A2: max rect pointer to stop to
+; trashes: most registers
 commit_paint
+    cmp.l   a2,a1
+    beq.b   .out
 .vloop
     ; fill rectangles
     move.l  (a1)+,a0
@@ -952,7 +955,10 @@ commit_paint
     ; play fill sound once even if several rectangles
     lea     filled_sound,a0
     bra     play_fx
- 
+.out
+	; safety
+	rts
+	
 f_unpainted_to_painted
 f_remains_painted
 	; store the tile we're starting from
@@ -1264,6 +1270,7 @@ init_level:
     move.l  (a1,d2.w),a1    ; global speed table
     move.l  a1,global_speed_table
 
+	
     lea nb_enemy_table(pc),a1
     move.w  level_number(pc),d2
     cmp.w   #5,d2
@@ -1272,6 +1279,10 @@ init_level:
 .lower
     add.w   d2,d2
     move.w  (a1,d2.w),nb_enemies_but_thief
+
+	lea	standby_time_table(pc),a1
+	move.w	(a1,d2.w),thief_standby_time
+	
     IFD     THIEF_AI_TEST
     clr.w   nb_enemies_but_thief
     ENDC
@@ -2240,6 +2251,7 @@ draw_high_score
 
     
 ; < D0: score (/10)
+; trashes: D0,D1
 add_to_score:
 	tst.b	demo_mode
 	bne.b	.below
@@ -2259,8 +2271,10 @@ add_to_score:
     
     move.w  #MSG_SHOW,extra_life_message
     addq.b   #1,nb_lives
+	move.l	a0,d1	; save A0
     lea     extra_life_sound,a0
     bsr play_fx
+	move.l	d1,a0	; restore A0
 .below
     rts
     
@@ -3828,6 +3842,11 @@ level2_interrupt:
     move.w  #POWER_STATE_LENGTH,power_state_counter
     bra.b   .no_playing
 .no_longer_bonus
+    cmp.b   #$56,d0     ; F7
+    bne.b   .no_add_to_score
+	move.w	#500,d0
+	bsr		add_to_score
+.no_add_to_score
     cmp.b   #$57,d0     ; F8
     bne.b   .no_maze_dump
     tst.l   _resload
@@ -3983,7 +4002,7 @@ vbl_counter:
 
 SONG_1_LENGTH = ORIGINAL_TICKS_PER_SEC*17+ORIGINAL_TICKS_PER_SEC/2+6
 SONG_2_LENGTH = ORIGINAL_TICKS_PER_SEC*13+14
-BONUS_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*8
+BONUS_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*8-8
 POWER_SONG_LENGTH = ORIGINAL_TICKS_PER_SEC*4+ORIGINAL_TICKS_PER_SEC/2-4
 
 POWER_STATE_LENGTH = POWER_SONG_LENGTH*2+POWER_SONG_LENGTH/4
@@ -4306,7 +4325,6 @@ update_all
 	bcs.b	.tracer_not_killed
 	cmp.w	#MODE_CHASE,d5
 	bne.b	.tracer_not_killed
-	blitz
 	; killed and was in chase mode: shortcut chase mode
 	; to avoid that tracer/thief goes through the path that
 	; player took to eat enemies directly, without first step
@@ -4395,6 +4413,7 @@ reset_thief_attack_mode
     ; set timer for full attack mode
     move.b  #4,thief_attack_sound_count
     move.w  #1,thief_attack_sound_count_timer
+	; always a short time before heads for first objective
     move.w  #ORIGINAL_TICKS_PER_SEC,thief_standby_timer
     rts
     
@@ -4440,9 +4459,8 @@ check_collisions
 .no_rollback
     bsr stop_sounds
     lea     player_killed_sound(pc),a0
-    bsr     play_fx
-    
-    rts
+    bra     play_fx
+   
 
 .pac_eats_ghost:   
     
@@ -5431,7 +5449,7 @@ move_chase
     ; pause again
     clr.b   first_thief_objective
     move.w  #MODE_STANDBY,mode(a4)
-    move.w  #ORIGINAL_TICKS_PER_SEC,thief_standby_timer
+    move.w  thief_standby_time,thief_standby_timer
 
     rts
 .out
@@ -7651,6 +7669,9 @@ thief_target_tile_y
     dc.w    0
 thief_standby_timer:
     dc.w    0
+; initial time for standby
+thief_standby_time:
+    dc.w    0
 thief_attack_sound_count_timer:
     dc.w    0
 thief_attacks:
@@ -7730,7 +7751,17 @@ score_table
     dc.w    0,1,5
 nb_enemy_table
     dc.w    4,4,5,5,6,6
-
+	; not sure it's accurate, well, doesn't matter, as the arcade
+	; game came with different versions and skill levels.
+standby_time_table
+	dc.w	5*ORIGINAL_TICKS_PER_SEC
+	dc.w	4*ORIGINAL_TICKS_PER_SEC
+	dc.w	3*ORIGINAL_TICKS_PER_SEC
+	dc.w	2*ORIGINAL_TICKS_PER_SEC
+	dc.w	1*ORIGINAL_TICKS_PER_SEC
+	dc.w	1	; 1 frame: no standby
+	
+	
 fruit_score     ; must follow score_table
     dc.w    10
 loop_array:
@@ -7973,7 +8004,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ
     SOUND_ENTRY enemy_falling,2,SOUNDFREQ
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ
-    SOUND_ENTRY extra_life,0,SOUNDFREQ
+    SOUND_ENTRY extra_life,2,SOUNDFREQ
     SOUND_ENTRY thief_attacks,2,SOUNDFREQ
     SOUND_ENTRY player_killed,2,SOUNDFREQ
     SOUND_ENTRY credit,1,SOUNDFREQ

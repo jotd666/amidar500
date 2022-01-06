@@ -40,18 +40,14 @@ HOW TO PLAY:
 
 ISSUES:
 
+- reorganize sprites to match various palettes when an enemy is killed (tricky!)
 - sometimes no bonus level
-- no animation when falling after normal music resumes
+- no animation when falling after normal music resumes, should be continuing falling
+- missing paint in bonus stage sometimes (draw on update!!)
+- check if cattle is centered in bonus/intro
 
 MINOR ISSUES:
 
-- bonus level: music loop too long (only sometimes)
-- in arcade game thief attack pause length is different depending of the time
-  it took to reach the first target tile
-
-TODO:
-
-- reorganize sprites to match various palettes when an enemy is killed (tricky!)
 
 CREDITS:
 
