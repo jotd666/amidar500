@@ -94,7 +94,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -104,14 +104,14 @@ DIRECT_GAME_START
 ;BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
-NO_ENEMIES
+;NO_ENEMIES
 
-;HIGHSCORES_TEST
+HIGHSCORES_TEST
 
 ; 
-;START_NB_LIVES = 1
+START_NB_LIVES = 1
 ;START_SCORE = 1000/10
-START_LEVEL = 4
+;START_LEVEL = 4
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -2555,8 +2555,8 @@ draw_intro_screen
     lea     hiscore_table(pc),a4
     move.l  (a4,d5.w),d2
     
-    move.w  #56,d0
-    move.w  #8,d3
+    move.w  #64,d0
+    move.w  #7,d3
     bsr write_blanked_color_decimal_number
 
     move.w  d4,d2
@@ -2737,7 +2737,7 @@ clear_plane_any_cpu
     move.w  (a7)+,d3
     rts
     
-clear_plane_any_cpu_any_height    
+clear_plane_any_cpu_any_height 
     movem.l d0-D3/a0-a2,-(a7)
     subq.w  #1,d3
     bmi.b   .out
@@ -2754,7 +2754,11 @@ clear_plane_any_cpu_any_height
     btst    #0,d1
     bne.b   .odd
     cmp.w   #4,d2
-    bcc.b   .even
+    bcs.b   .odd
+	btst	#0,d2
+	bne.b	.odd
+	btst	#1,d2
+	beq.b	.even
 .odd    
     ; odd address
     move.w  d3,d0
@@ -3439,6 +3443,7 @@ draw_dot:
 ; < D4 previous direction
 
 paint_zone:
+	clr.b	corner_sideeffect_paint
     ; just copy the data of the backup plane
     ; for this we have to compute what is A1 address offset
     ; compared to second plane
@@ -3474,6 +3479,10 @@ paint_zone:
 	beq.b	.no_extra_paint
 	or.b	#$C0,(a1,d5.w)
 	or.b	#$C0,(a2,d5.w)
+	; set a flag to avoid unpainting too much if kludge wasn't applied
+	; it works properly because rollback unpaint is done in reverse order
+	; (else it could break the side effect and unpaint some other corner)
+	st.b	corner_sideeffect_paint
 .no_extra_paint
     or.b  d0,(a1)
     or.b  d0,(a2)
@@ -3524,13 +3533,18 @@ unpaint_zone:
 	or.b	#$E0,d0
 .no_right
 	; this removes the 2x2 corner too many times
-;	cmp.b	#-1,(-1,a0,d5.w) ; check grid horizontal full line
-;	bne.b	.no_extra_unpaint
-;	tst.b	(-1,a1,d5.w)
-;	beq.b	.no_extra_unpaint
-;	and.b	#$3F,(a1,d5.w)
-;	and.b	#$3F,(a2,d5.w)
-;.no_extra_unpaint
+	tst.b	corner_sideeffect_paint
+	beq.b	.no_extra_unpaint
+	cmp.b	#-1,(-1,a0,d5.w) ; check grid horizontal full line
+	bne.b	.no_extra_unpaint
+	tst.b	(-1,a1,d5.w)
+	beq.b	.no_extra_unpaint
+	clr.b	corner_sideeffect_paint
+	and.b	#$3F,(a1,d5.w)
+	and.b	#$3F,(a2,d5.w)
+	and.b	#$3F,(NB_BYTES_PER_LINE,a1,d5.w)
+	and.b	#$3F,(NB_BYTES_PER_LINE,a2,d5.w)
+.no_extra_unpaint
     and.b  d0,(a1)
     and.b  d0,(a2)
     add.w   d4,a0
@@ -4505,7 +4519,6 @@ update_intro_screen
     ; highscore highlight => first screen
     tst.w   high_score_position
     bmi.b   .really_third
-    move.w  #-1,high_score_position
     bra.b   .reset_first
 .really_third
     ; third screen init
@@ -4527,8 +4540,14 @@ update_intro_screen
     cmp.l   #ORIGINAL_TICKS_PER_SEC*22,d0
     bne.b   .no3end
 .reset_first
-    ; screen 3 end => demo mode
-    bra.b	.demo
+	clr.l	state_timer
+	; test if game was just played
+	; with a hiscore highlight
+	
+	tst.w   high_score_position
+    bmi.b   .demo		  ; screen 3 end => demo mode
+    move.w  #-1,high_score_position	
+    bra.b	.first ; from highscore highlight: just revert to title
 .no3end
     move.l  d0,state_timer
     
@@ -6081,15 +6100,18 @@ rollback_paint:
     addq.w  #1,cdots(a1)  
     bra.b   .readd_dot
 .rad_out    
-    ; unpaint zone
+    ; unpaint zone, in the inverse order it was painted to avoid
+	; side effect issues. This is just slightly trickier because of
+	; boundary check which must be done at 2/3 different places
     lea     rollback_paint_zone_buffer,a0
-    move.l  rollback_paint_zone_pointer(pc),d1
+	move.l	a0,d1
+    move.l  rollback_paint_zone_pointer(pc),a0
+    cmp.l   a0,d1	; check end of list immediately in case it's empty!
+    beq.b   .up_out
     clr.l   d5
 .unpaint:
-    cmp.l   a0,d1
-    beq.b   .up_out
-    move.l  (a0)+,a1
-    move.w  (a0)+,d3
+    move.w  -(a0),d3
+    move.l  -(a0),a1
     cmp.l   a1,d5
     bne.b   .no_same
     ; same means left upper corner
@@ -6121,8 +6143,10 @@ rollback_paint:
     lea     paint_backup_plane,a2
     add.l   d0,a2       ; offset of data to copy    
     clr.b   (a2)
-    clr.b   (NB_BYTES_PER_LINE,a2)
-    
+    clr.b   (NB_BYTES_PER_LINE,a2)    
+
+    cmp.l   a0,d1	; check end of list
+    beq.b   .up_out
     
     bra.b   .unpaint
 .down
@@ -6131,7 +6155,8 @@ rollback_paint:
 .no_same
     move.l  a1,d5
     bsr     unpaint_zone
-    bra.b   .unpaint
+    cmp.l   a0,d1	; check end of list
+    bne.b   .unpaint
 .up_out
     
     ; reset pointers to start of lists
@@ -7617,7 +7642,8 @@ nb_lives:
     dc.b    0
 rustler_level:
     dc.b    0
-
+corner_sideeffect_paint
+	dc.b	0
 previous_tile_type:
     dc.b    0
 

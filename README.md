@@ -46,7 +46,6 @@ ISSUES:
 
 MINOR ISSUES:
 
-- undo_paint: not perfect in lower corners
 - bonus level: music loop too long only sometimes
 - in arcade game thief attack pause length is different depending of the time
   it took to reach the first target tile
