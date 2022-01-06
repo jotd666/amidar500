@@ -40,20 +40,18 @@ HOW TO PLAY:
 
 ISSUES:
 
-- highscore flash => game should show title instead instead of demo
 - sometimes no bonus level
 - no animation when falling after normal music resumes
 
 MINOR ISSUES:
 
-- bonus level: music loop too long only sometimes
+- bonus level: music loop too long (only sometimes)
 - in arcade game thief attack pause length is different depending of the time
   it took to reach the first target tile
 
 TODO:
 
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- power timeout with killed thief => should reset to standby & acquire new target (with sound)
 
 CREDITS:
 

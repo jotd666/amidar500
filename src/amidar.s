@@ -106,10 +106,10 @@ Execbase  = 4
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
 
-HIGHSCORES_TEST
+;HIGHSCORES_TEST
 
 ; 
-START_NB_LIVES = 1
+;START_NB_LIVES = 1
 ;START_SCORE = 1000/10
 ;START_LEVEL = 4
 
@@ -1940,8 +1940,6 @@ draw_enemies:
 .draw_killed
     move.w  score_frame(a0),d2
     bra.b   .get_frame
-    ; TODO draw score frame instead
-    bra.b   .draw_normal
 .draw_kill
     move.w  enemy_kill_frame(pc),d2
     bra.b   .get_frame
@@ -4281,6 +4279,12 @@ update_all
 
 	; reset enemies to lethal
 	lea	enemies(pc),a0
+
+	; save for later
+	move.w	mode(a0),d4
+	move.w	previous_mode(a0),d5
+	
+
 	move.w	nb_enemies_but_thief(pc),d1
 .gloop
     ; no power state, reset old mode
@@ -4297,6 +4301,22 @@ update_all
 	clr.b	fright_mode(a0)
 	add.w	#Enemy_SIZEOF,a0
 	dbf		d1,.gloop
+
+	cmp.w	#MODE_HANG,d4
+	bcs.b	.tracer_not_killed
+	cmp.w	#MODE_CHASE,d5
+	bne.b	.tracer_not_killed
+	blitz
+	; killed and was in chase mode: shortcut chase mode
+	; to avoid that tracer/thief goes through the path that
+	; player took to eat enemies directly, without first step
+	st.b    player_move_record
+    clr.b    first_thief_objective	; skip first objective
+    bsr		reset_thief_attack_mode
+	lea	enemies(pc),a0	
+	bsr	trigger_chase_mode	
+.tracer_not_killed
+
 
 .skip_a_lot
     ; reset enemies palette
@@ -4369,12 +4389,13 @@ COLLISION_SHIFTING_PRECISION = 3
 set_thief_attack_mode
     st.b    thief_attacks
     clr.b   thief_up_move_lock
+    lea     enemies(pc),a0
+    move.w  #MODE_STANDBY,mode(a0)
+reset_thief_attack_mode
+    ; set timer for full attack mode
     move.b  #4,thief_attack_sound_count
     move.w  #1,thief_attack_sound_count_timer
     move.w  #ORIGINAL_TICKS_PER_SEC,thief_standby_timer
-    lea     enemies(pc),a0
-    move.w  #MODE_STANDBY,mode(a0)
-    ; set timer for full attack mode
     rts
     
 check_collisions
@@ -4483,14 +4504,20 @@ update_intro_screen
 
     move.w  #1,nb_enemies_but_thief
     st.b    bonus_sprites
-    moveq.l #0,d0
+    clr.l	d0
     bsr init_enemies
     
     lea enemies+Enemy_SIZEOF(pc),a0
 
     move.w   #-1,previous_xpos(a0)
     move.w   #-1,previous_ypos(a0)
-    move.w  #120,xpos(a0)
+	lea		.cattle_x_table(pc),a1
+	; pick a random start position
+	bsr		random
+	and.w	#3,d0
+	add.w	d0,d0
+	move.w	(a1,d0.w),d0
+    move.w  d0,xpos(a0)
     move.w  #-8,ypos(a0)     ; this is the logical coordinate
     move.l  #maze_intro_wall_table,maze_wall_table
     move.w  #DOWN,direction(a0)
@@ -4660,7 +4687,11 @@ update_intro_screen
     ; in demo mode
     st.b    demo_mode
     rts
-    
+
+; not all start positions work properly
+; but who cares? just omit the ones that fail
+.cattle_x_table:
+	dc.w	40,80,120,160
 .cct_countdown
     dc.w    0
 .cct_x:
@@ -5022,26 +5053,28 @@ move_standby
     bsr     animate_enemy
     subq.w  #1,thief_standby_timer
     bne.b   .out
+	move.l	a4,a0
+	bsr		trigger_chase_mode
+.out
+    rts
 
-    move.w  #MODE_CHASE,mode(a4)    ; attack player!
+; what: switch to chase mode
+; < A4: enemy struct
+trigger_chase_mode
+    move.w  #MODE_CHASE,mode(a0)    ; attack player!
     ; timeout reached. If player move recorder
     ; isn't started, start it
     tst.b   player_move_record
-    bne.b   .record_started
+    bne.b   store_player_tile
     st.b    player_move_record
     ; will re-switch to standby when first objective is reached
     st.b    first_thief_objective
     st.b    first_recorded_move
     clr.w   thief_move_index
     clr.w   player_move_index
-    bsr     store_player_tile
-    
-.out
-    rts
-.record_started
     ; now record player moves
-    bsr    store_player_tile
-    rts
+    bra     store_player_tile
+
 
 ; store player tile only if the same as previously
 ; or the first one
