@@ -40,22 +40,20 @@ HOW TO PLAY:
 
 ISSUES:
 
-- demo mode: highscore flash => game should show title instead instead of demo
+- highscore flash => game should show title instead instead of demo
 - sometimes no bonus level
 - no animation when falling after normal music resumes
-- paint from right: missing pixel
-- paint: missing bottom right corner
 
 MINOR ISSUES:
 
-- undo_paint: not perfect sometimes missing paint removal on 2x2 zones
+- undo_paint: not perfect in lower corners
 - bonus level: music loop too long only sometimes
+- in arcade game thief attack pause length is different depending of the time
+  it took to reach the first target tile
 
 TODO:
 
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- thief attack pause length is different depending of the time
-  it took to reach the first target tile
 - power timeout with killed thief => should reset to standby & acquire new target (with sound)
 
 CREDITS:

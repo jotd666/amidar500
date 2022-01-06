@@ -49,6 +49,7 @@ INTERRUPTS_ON_MASK = $E038
     UWORD   h_speed
     UWORD   v_speed
 	UWORD	direction   ; sprite orientation
+	UWORD	previous_direction   ; previous sprite orientation
     UWORD   frame
     UWORD   turn_lock
 	LABEL	Character_SIZEOF
@@ -93,7 +94,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
@@ -103,14 +104,14 @@ Execbase  = 4
 ;BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
-;NO_ENEMIES
+NO_ENEMIES
 
 ;HIGHSCORES_TEST
 
 ; 
 ;START_NB_LIVES = 1
 ;START_SCORE = 1000/10
-;START_LEVEL = 1
+START_LEVEL = 4
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -794,7 +795,7 @@ f_temp_to_unpainted
 f_painted_to_unpainted
 	; store previous direction, useful then in f_remains_temp to know
 	; when to stop playing paint sound (when player reverses direction)
-	move.w  player+direction(pc),previous_direction
+	move.w  player+direction(pc),previous_temp_paint_direction
     ; keeps painting
     bsr dot_painted_temp
     ; update compatible rectangles (intersection)
@@ -861,11 +862,11 @@ f_remains_temp
     ; if no direction change, don't attempt to validate
 	; pending rectangles
     move.w  player+direction(pc),d2
-    move.w   previous_direction(pc),d3
+    move.w   previous_temp_paint_direction(pc),d3
 	cmp.w	d2,d3
 	beq.b	.out
 	; store for later
-	move.w	d2,previous_direction
+	move.w	d2,previous_temp_paint_direction
 	
 	; did player reverse direction?
 	; check with a table
@@ -918,10 +919,10 @@ f_temp_to_painted
 	; discontinuous segment to paint
 	
 	; just paint the zone (screen)
-	; compute A1 & D2
+	; compute A1
 	bsr		adjust_dot_paint_xyl	
 	move.w  direction(a4),d3 ; add direction
-    bsr     paint_zone
+   bsr     paint_zone
     rts
 
 
@@ -1093,7 +1094,7 @@ dot_painted_shared
 ; < D1: Y
 ; < A4: player
 ; > A1: paint address
-; > D2: height
+
 adjust_dot_paint_xyl    
     lea	screen_data+SCREEN_PLANE_SIZE,a1
     addq.w  #8,d0
@@ -1578,7 +1579,7 @@ init_player:
     
     
 	move.w 	#LEFT,direction(a0)
-	move.w	#LEFT,previous_direction
+
     clr.w  speed_table_index(a0)
     move.w  #-1,h_speed(a0)
     clr.w   v_speed(a0)
@@ -3434,8 +3435,8 @@ draw_dot:
     rts
 
 ; < A1 address
-; < D2: height
 ; < D3 direction
+; < D4 previous direction
 
 paint_zone:
     ; just copy the data of the backup plane
@@ -3449,40 +3450,54 @@ paint_zone:
 
     move.l  a0,rollback_paint_zone_pointer
     
-    clr.b   smaller_vertical_paint
     bsr     prepare_paint_zone
-    ; > A0,A2,D2 set
+    ; > A0,A2,D2,D5 set
+	
 .loop
     move.b  (a0),d0
     cmp.w #LEFT,d3
-    beq.b   .cont
+    beq.b   .horiz
     cmp.w #RIGHT,d3
-    beq.b   .right
+    beq.b   .horiz
 	; vertical
-    and.b   #$C0,d0 ; remove horizontal rightmost pixels
-	; doesn't remove parasite leftmost pixels
-    bra.b   .cont
-.right
+    and.b   #$C0,d0 ; remove horizontal rightmost pixels	
+.horiz
 
-.cont
+	; workaround for remaining unpainted bottom right corner (2x2 square)
+	; because when painter turns this area is neither handled by horizontal
+	; paint nor vertical paint. Doing so paints too much in other cases
+	; this kludge works: check if there's a painted segment on the bottom left
+	
+	cmp.b	#-1,(-1,a0,d5.w) ; check grid horizontal full line
+	bne.b	.no_extra_paint
+	tst.b	(-1,a1,d5.w)
+	beq.b	.no_extra_paint
+	or.b	#$C0,(a1,d5.w)
+	or.b	#$C0,(a2,d5.w)
+.no_extra_paint
     or.b  d0,(a1)
     or.b  d0,(a2)
+
+
     add.w   d4,a0
     add.w   d4,a1
     add.w   d4,a2
     dbf     d2,.loop
     movem.l (a7)+,d0-d5/a0/a2
     rts
-    
+   
+; < A1: screen destination address   
+; < D3: direction
+; < D4: previous direction
 unpaint_zone:
     ; just copy the data of the backup plane
     ; for this we have to compute what is A1 address offset
     ; compared to second plane
     ; probably faster than recomputing that from X,Y
-    movem.l d0/d4/a0/a2,-(a7)
+    movem.l d0/d4-d5/a0/a2,-(a7)
     bsr prepare_paint_zone
-	; A1: screen
-	; A2: paint backup plane
+	; out A1: screen
+	; out A2: paint backup plane
 .loop
     move.b  (a0),d0
 	not.b	d0
@@ -3508,13 +3523,21 @@ unpaint_zone:
 .enhance_mask
 	or.b	#$E0,d0
 .no_right
+	; this removes the 2x2 corner too many times
+;	cmp.b	#-1,(-1,a0,d5.w) ; check grid horizontal full line
+;	bne.b	.no_extra_unpaint
+;	tst.b	(-1,a1,d5.w)
+;	beq.b	.no_extra_unpaint
+;	and.b	#$3F,(a1,d5.w)
+;	and.b	#$3F,(a2,d5.w)
+;.no_extra_unpaint
     and.b  d0,(a1)
     and.b  d0,(a2)
     add.w   d4,a0
     add.w   d4,a1
     add.w   d4,a2
     dbf     d2,.loop
-    movem.l (a7)+,d0/d4/a0/a2
+    movem.l (a7)+,d0/d4-d5/a0/a2
     rts
     
 ; unpaint/paint register shared computations
@@ -3532,15 +3555,15 @@ prepare_paint_zone
     beq.b   .horiz
     cmp.w   #RIGHT,d3
     beq.b   .horiz
+	; vertical
     moveq.w #7,d2
-    tst.b   smaller_vertical_paint      ; hack we can change height (corner unpaint)
-    beq.b   .cont
-    moveq.w #5,d2
     bra.b   .cont
 .horiz
     moveq.w #1,d2
 .cont
+	; the magic constants
     move.w  #NB_BYTES_PER_LINE,d4
+	move.w	#NB_BYTES_PER_LINE*2,d5
     rts
     
 ; < A1 address
@@ -5072,7 +5095,7 @@ move_border_patrol
     bsr     set_thief_attack_mode
 .no_attack    
     rts
-.change
+.change	
     tst.w   d4
     bmi.b   .down
     bne.b   .up
@@ -5857,6 +5880,7 @@ update_player
     tst.b   d0
     beq.b   .no_vertical
     ; validate
+	move.w	direction(a4),previous_direction(a4)	
     add.w   d6,d3  ; change y
     bset    #1,d5
     tst.w   d6
@@ -5888,6 +5912,7 @@ update_player
     tst.b   d0
     beq.b   .no_horizontal
     ; validate
+	move.w	direction(a4),previous_direction(a4)	
     add.w   d6,d2  ; change x
     bset    #1,d5
     tst.w   d6
@@ -6059,13 +6084,13 @@ rollback_paint:
     ; unpaint zone
     lea     rollback_paint_zone_buffer,a0
     move.l  rollback_paint_zone_pointer(pc),d1
-    clr.l   d4
+    clr.l   d5
 .unpaint:
     cmp.l   a0,d1
     beq.b   .up_out
     move.l  (a0)+,a1
     move.w  (a0)+,d3
-    cmp.l   a1,d4
+    cmp.l   a1,d5
     bne.b   .no_same
     ; same means left upper corner
     ; add y offset and reduce height
@@ -6074,7 +6099,7 @@ rollback_paint:
     ; case 1
     ; up then left with same address
     ; change mask of horizontal
-    clr.b   smaller_vertical_paint
+
     cmp.w   #RIGHT,d3
     beq.b   .horiz
     cmp.w   #DOWN,d3
@@ -6102,9 +6127,9 @@ rollback_paint:
     bra.b   .unpaint
 .down
     add.w  #NB_BYTES_PER_LINE*2,a1
-    st.b    smaller_vertical_paint
+    ;;st.b    smaller_vertical_paint
 .no_same
-    move.l  a1,d4
+    move.l  a1,d5
     bsr     unpaint_zone
     bra.b   .unpaint
 .up_out
@@ -6229,7 +6254,7 @@ DRAW_RECT_LINE:MACRO
     
 ; draw horizontal outline
 DRAW_RECT_HORIZ_OUTLINE:MACRO
-    or.b  #$3F<<1,(\2,\1)
+    or.b  #$7F,(\2,\1)
     st  (\2+1,\1)
     st  (\2+2,\1)
     st  (\2+3,\1)
@@ -6238,8 +6263,8 @@ DRAW_RECT_HORIZ_OUTLINE:MACRO
     ENDM
 ; draw vertical outline
 DRAW_RECT_VERT_OUTLINE:MACRO
-    or.b  #$60<<1,(\2,\1)
-    or.b  #$60<<1,(\2+5,\1)
+    or.b  #$C0,(\2,\1)		; left
+    or.b  #$C0,(\2+5,\1)		; right
     ENDM
     
 ; < A0: pointer to rectangle structure
@@ -7555,7 +7580,7 @@ can_eat_enemies_mode_pending
     dc.w    0
 maze_fill_color
     dc.w    0
-previous_direction:
+previous_temp_paint_direction:
     dc.w    0
 attack_timeout:
     dc.w    0
@@ -7589,8 +7614,6 @@ first_thief_objective
 next_level_is_bonus_level
     dc.b    0
 nb_lives:
-    dc.b    0
-smaller_vertical_paint:
     dc.b    0
 rustler_level:
     dc.b    0
