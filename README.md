@@ -41,12 +41,8 @@ HOW TO PLAY:
 ISSUES:
 
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- sometimes no bonus level
 - no animation when falling after normal music resumes, should be continuing falling
-- missing paint in bonus stage sometimes (draw on update!!)
-- check if cattle is centered in bonus/intro
-
-MINOR ISSUES:
+- sometimes no bonus level (very rare)
 
 
 CREDITS:

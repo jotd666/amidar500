@@ -101,7 +101,7 @@ Execbase  = 4
 ;THIEF_AI_TEST
 
 ; test bonus screen 
-;BONUS_SCREEN_TEST
+BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -2043,7 +2043,7 @@ draw_all
     ; draw cattle
     lea enemies+Enemy_SIZEOF(pc),a0
     move.w  xpos(a0),d0
-    add.w   #2,d0
+    add.w   #1,d0
     move.w  ypos(a0),d1
     add.w   #3-4,d1
     bsr store_sprite_pos
@@ -2061,7 +2061,7 @@ draw_all
     move.l  d0,(a1)+
     
     move.w  banana_x(pc),d0
-    move.w  #200,d1
+    move.w  #199,d1
     bsr store_sprite_pos    
     
     ; write control word
@@ -2094,58 +2094,9 @@ draw_all
     move.l  d0,(a1)     ; store control word
     move.l  a1,d0
     lea intro_cattle_pink,a0
-    bsr store_sprite_copperlist
+    bra store_sprite_copperlist
 
-    lea enemies+Enemy_SIZEOF(pc),a0
-
-    move.w  xpos(a0),d0
-    move.w  ypos(a0),d1
-
-    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
-    move.w  previous_xpos(a0),d2
-    bmi.b   .no_diagonal
-    cmp.w   d0,d2
-    beq.b   .no_diagonal
-    move.w  previous_ypos(a0),d3
-    cmp.w   d1,d3
-    beq.b   .no_diagonal
-    ; both x and y are different because update skipped a frame and went diagonal
-    ; we have to fix that else the line will be buggy
-        ; y is different
-    movem.w d0-d1,-(a7)
-    move.w   d3,d1  ; previous y
-    add.w   #2,d1
-    bsr .copyit
-    movem.w (a7),d0-d1
-    move.w   d2,d0  ; previous y
-    add.w   #2,d1
-    bsr .copyit
-    movem.w (a7)+,d0-d1
-    
-.no_diagonal
-    
-    move.w  d0,previous_xpos(a0)
-    move.w  d1,previous_ypos(a0)
-    
-    add.w   #2,d1
-    
-    bsr .copyit
-    
-    rts
-    
-.copyit:
-    lea screen_data,a1    
-    ADD_XY_TO_A1    a2
-    lea (SCREEN_PLANE_SIZE,a1),a2
-    cmp.w   #LEFT,direction(a0)
-    beq.b   .skipleft
-    move.b  (a1),(a2)
-    move.b  (NB_BYTES_PER_LINE,a1),(NB_BYTES_PER_LINE,a2)
-.skipleft
-    move.b  (1,a1),(1,a2)
-    move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
-   
-    rts
+	
     
 .bonus_stage_text
     dc.b    "BONUS  STAGE",0
@@ -2445,7 +2396,7 @@ draw_intro_screen
     lea enemies+Enemy_SIZEOF(pc),a0
     
     move.w  xpos(a0),d0
-    addq.w  #2,d0       ; compensate
+    addq.w  #1,d0       ; compensate
 
     move.w  ypos(a0),d1
     add.w  #INTRO_Y_SHIFT+5,d1   ; compensate + add offset so logic coords match intro maze
@@ -4117,6 +4068,27 @@ update_all
     rts
     
 .moving
+    lea enemies+Enemy_SIZEOF(pc),a0
+
+	; paint maze
+    move.w  xpos(a0),d0
+    move.w  ypos(a0),d1
+    ; don't bother about oring shit or whatnot: just copy the first plane into the second plane
+    
+    add.w   #2,d1
+    
+    lea screen_data,a1    
+    ADD_XY_TO_A1    a2
+    lea (SCREEN_PLANE_SIZE,a1),a2
+    cmp.w   #LEFT,direction(a0)
+    beq.b   .skipleft
+    move.b  (a1),(a2)
+    move.b  (NB_BYTES_PER_LINE,a1),(NB_BYTES_PER_LINE,a2)
+.skipleft
+    move.b  (1,a1),(1,a2)
+    move.b  (NB_BYTES_PER_LINE+1,a1),(NB_BYTES_PER_LINE+1,a2)
+   
+	; music replay
     subq.w  #1,bonus_music_replay_timer
     bne.b   .no_replay
     move.w  #3,d0
@@ -7994,25 +7966,25 @@ SOUNDFREQ = 22050
 SOUND_ENTRY:MACRO
 \1_sound
     dc.l    \1_raw
-    dc.w    (\1_raw_end-\1_raw)/2,FXFREQBASE/\3,64
+    dc.w    (\1_raw_end-\1_raw)/2,FXFREQBASE/\3,\4
     dc.b    \2
     dc.b    $01
     ENDM
     
     ; radix, ,channel (0-3)
-    SOUND_ENTRY lose_bonus,1,SOUNDFREQ
-    SOUND_ENTRY enemy_hit,1,SOUNDFREQ
-    SOUND_ENTRY enemy_falling,2,SOUNDFREQ
-    SOUND_ENTRY enemy_killed,2,SOUNDFREQ
-    SOUND_ENTRY extra_life,2,SOUNDFREQ
-    SOUND_ENTRY thief_attacks,2,SOUNDFREQ
-    SOUND_ENTRY player_killed,2,SOUNDFREQ
-    SOUND_ENTRY credit,1,SOUNDFREQ
-    SOUND_ENTRY eat,3,SOUNDFREQ
-    SOUND_ENTRY ping,3,SOUNDFREQ
-    SOUND_ENTRY paint,3,SOUNDFREQ
-    SOUND_ENTRY filled,0,SOUNDFREQ
-    SOUND_ENTRY jump,1,SOUNDFREQ
+    SOUND_ENTRY lose_bonus,1,SOUNDFREQ,64
+    SOUND_ENTRY enemy_hit,1,SOUNDFREQ,64
+    SOUND_ENTRY enemy_falling,2,SOUNDFREQ,64
+    SOUND_ENTRY enemy_killed,2,SOUNDFREQ,64
+    SOUND_ENTRY extra_life,2,SOUNDFREQ,64
+    SOUND_ENTRY thief_attacks,2,SOUNDFREQ,64
+    SOUND_ENTRY player_killed,2,SOUNDFREQ,64
+    SOUND_ENTRY credit,1,SOUNDFREQ,64
+    SOUND_ENTRY eat,3,SOUNDFREQ,20
+    SOUND_ENTRY ping,3,SOUNDFREQ,64
+    SOUND_ENTRY paint,3,SOUNDFREQ,64
+    SOUND_ENTRY filled,0,SOUNDFREQ,64
+    SOUND_ENTRY jump,1,SOUNDFREQ,24
 
 ; 0-49 divisibility table
 divisible_by_5_table
