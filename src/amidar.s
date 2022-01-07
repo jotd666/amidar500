@@ -96,6 +96,10 @@ Execbase  = 4
 ; if set skips intro, game starts immediately
 DIRECT_GAME_START
 
+; if set, only the tracer/thief is in play
+
+;ONLY_TRACER
+
 ; if set, only thief is in play, and attacks immediately
 
 ;THIEF_AI_TEST
@@ -125,6 +129,12 @@ DIRECT_GAME_START
 ; ******************** end test defines *********************************
 
 ; don't change the values below, change them above to test!!
+
+	IFD	THIEF_AI_TEST
+	IFND	ONLY_TRACER
+ONLY_TRACER
+	ENDC
+	ENDC
 
 	IFD	HIGHSCORES_TEST
 EXTRA_LIFE_SCORE = 3000/10
@@ -1283,7 +1293,7 @@ init_level:
 	lea	standby_time_table(pc),a1
 	move.w	(a1,d2.w),thief_standby_time
 	
-    IFD     THIEF_AI_TEST
+    IFD     ONLY_TRACER
     clr.w   nb_enemies_but_thief
     ENDC
     rts
@@ -1935,8 +1945,6 @@ draw_enemies:
     add.w   #HANG_FIRST_FRAME,d2
     bra.b   .get_frame
 .draw_fall
-    tst.w   power_state_counter
-    beq.b   .draw_normal    ; power has faded: normal sprites
     move.w  fall_hang_toggle(a0),d2
     add.w   #FALL_FIRST_FRAME,d2
     bra.b   .get_frame
@@ -3682,6 +3690,7 @@ saved_intena
 ; F6: make power sequence longer
 ; F8: dump maze dot data (whdload only)
 ; F9: thief attacks now
+; left-ctrl: fast-forward (no player controls during that)
 
 level2_interrupt:
 	movem.l	D0/A0/A5,-(a7)
@@ -3777,7 +3786,7 @@ level2_interrupt:
     cmp.b   #$54,d0     ; F5
     bne.b   .no_bonus
     ; activate the "power pill" sequence or shut it
-    tst.b  enemies+Enemy_SIZEOF+fright_mode
+    tst.b  enemies+fright_mode
     bne.b   .shut_power
     move.w  #1,can_eat_enemies_mode_pending
     bra.b   .no_playing
@@ -7998,16 +8007,16 @@ SOUND_ENTRY:MACRO
     ; radix, ,channel (0-3)
     SOUND_ENTRY lose_bonus,1,SOUNDFREQ,64
     SOUND_ENTRY enemy_hit,1,SOUNDFREQ,64
-    SOUND_ENTRY enemy_falling,2,SOUNDFREQ,64
-    SOUND_ENTRY enemy_killed,2,SOUNDFREQ,64
-    SOUND_ENTRY extra_life,2,SOUNDFREQ,64
+    SOUND_ENTRY enemy_falling,2,SOUNDFREQ,48
+    SOUND_ENTRY enemy_killed,2,SOUNDFREQ,56
+    SOUND_ENTRY extra_life,2,SOUNDFREQ,56
     SOUND_ENTRY thief_attacks,2,SOUNDFREQ,64
-    SOUND_ENTRY player_killed,2,SOUNDFREQ,64
+    SOUND_ENTRY player_killed,2,SOUNDFREQ,40
     SOUND_ENTRY credit,1,SOUNDFREQ,64
-    SOUND_ENTRY eat,3,SOUNDFREQ,20
-    SOUND_ENTRY ping,3,SOUNDFREQ,64
-    SOUND_ENTRY paint,3,SOUNDFREQ,64
-    SOUND_ENTRY filled,0,SOUNDFREQ,64
+    SOUND_ENTRY eat,3,SOUNDFREQ,16
+    SOUND_ENTRY ping,3,SOUNDFREQ,32
+    SOUND_ENTRY paint,3,SOUNDFREQ,12
+    SOUND_ENTRY filled,0,SOUNDFREQ,24
     SOUND_ENTRY jump,1,SOUNDFREQ,24
 
 ; 0-49 divisibility table

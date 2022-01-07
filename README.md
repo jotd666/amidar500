@@ -41,9 +41,7 @@ HOW TO PLAY:
 ISSUES:
 
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- no animation when falling after normal music resumes, should be continuing falling
-- sometimes no bonus level (very rare)
-- update wav sounds
+- sometimes no bonus level (very rare, but systematic with fast forward)
 
 CREDITS:
 
