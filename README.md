@@ -43,12 +43,12 @@ ISSUES:
 - reorganize sprites to match various palettes when an enemy is killed (tricky!)
 - no animation when falling after normal music resumes, should be continuing falling
 - sometimes no bonus level (very rare)
-
+- update wav sounds
 
 CREDITS:
 
 - Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
-- Andrzej Dobrowolski (aka no9): music conversion
+- Andrzej Dobrowolski (aka no9): music/sfx conversion
 - Frank Wille (aka phx): sfx/module player
 - meynaf: random routine
 - eab forum: useful advice & support

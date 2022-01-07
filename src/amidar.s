@@ -94,14 +94,14 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-;DIRECT_GAME_START
+DIRECT_GAME_START
 
 ; if set, only thief is in play, and attacks immediately
 
 ;THIEF_AI_TEST
 
 ; test bonus screen 
-BONUS_SCREEN_TEST
+;BONUS_SCREEN_TEST
 
 ; enemies not moving/no collision detection
 ;NO_ENEMIES
@@ -3275,8 +3275,7 @@ draw_bonus_maze:
 
     lea enemies+Enemy_SIZEOF(pc),a0
     
-    move.w   #-1,previous_xpos(a0)
-    move.w   #-1,previous_ypos(a0)
+    move.l   #-1,previous_xpos(a0)
     rts    
 
 
@@ -3695,7 +3694,7 @@ level2_interrupt:
 	ROR.B	#1,D0		; raw key code here
     
     lea keyboard_table(pc),a0
-    and.w   #$FF,d0
+	
     bclr    #7,d0
     seq (a0,d0.w)       ; updates keyboard table
     bne.b   .no_playing     ; we don't care about key release
@@ -3815,7 +3814,6 @@ level2_interrupt:
     move.w  #1,attack_timeout
 .no_attack
 
-
 .no_playing
 
     cmp.b   _keyexit(pc),d0
@@ -3889,6 +3887,14 @@ level3_interrupt:
     moveq.w #0,d0    
 .normal
     move.w  d0,vbl_counter
+	tst.w	cheat_keys
+	beq.b	.outcop
+	; check left CTRL
+	move.b	$BFEC01,d0
+	ror.b	#1,d0
+	not.b	d0
+	cmp.b	#$63,d0
+	beq.b	.no_pause
 .outcop
     move.w  #$0010,(intreq,a5) 
     movem.l (a7)+,d0-a6
@@ -4499,8 +4505,7 @@ update_intro_screen
     
     lea enemies+Enemy_SIZEOF(pc),a0
 
-    move.w   #-1,previous_xpos(a0)
-    move.w   #-1,previous_ypos(a0)
+    move.l   #-1,previous_xpos(a0)
 	lea		.cattle_x_table(pc),a1
 	; pick a random start position
 	bsr		random
@@ -4815,9 +4820,9 @@ move_normal
     beq.b   .one_iteration      ; do it once
     bsr     .one_iteration      ; do it twice
 .one_iteration
-    
     move.w  xpos(a4),d2
     move.w  ypos(a4),d3
+	
     move.w   h_speed(a4),d4
     move.w   v_speed(a4),d5
 
@@ -4894,7 +4899,6 @@ enemy_try_horizontal
     move.w  d2,d0
     move.w  d3,d1
     
-
     add.w   d4,d0
 
     ; within maze: check if can move horizontally
@@ -4903,6 +4907,24 @@ enemy_try_horizontal
     
     moveq.w #1,d6   ; pass 1
     
+	tst.w	d3
+	bne.b	.no_up
+	tst.w	previous_ypos(a4)
+	beq.b	.no_up	; already on the top horizontal line
+	
+	; also there's a special case: on top
+	; enemies change horizontal priorities if in central part X wise
+	; without that "kludge" with symmetries 2 thiefs would be at the exact
+	; same position at level 1 at least (figured out from actual MAME
+	; video footage)
+	
+	cmp.w	#75,d2
+	bcs.b	.no_up
+	cmp.w	#155,d2
+	bcc.b	.no_up
+	neg.w	d4
+.no_up
+	
     tst.w   d4
     bmi.b   .test_left
     ; right first 
@@ -4950,6 +4972,7 @@ enemy_try_horizontal
 
 .hok
     ; can move: validate
+	move.l	xpos(a4),previous_xpos(a4)	; save both X and Y
     add.w  d4,xpos(a4)
     clr.w   d5
     moveq.w #1,d0
@@ -4997,6 +5020,7 @@ enemy_try_vertical
     beq.b   .no_vertical
 .vok
     ; can move: validate
+	move.l	xpos(a4),previous_xpos(a4)	; save both X and Y
     add.w  d5,ypos(a4)
     clr.w   d4
     moveq.w #1,d0
