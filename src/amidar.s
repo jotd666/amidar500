@@ -1406,6 +1406,8 @@ sort_normal_mode_copperlist_addresses
     move.w nb_enemies_but_thief(pc),d7
     beq.b   .no_other_enemies       ; just for test mode
     subq.w  #1,d7
+
+    ; clr.w   d2 see disabled code below
     
     lea enemies+Enemy_SIZEOF(pc),a0
 .igloop
@@ -1416,85 +1418,6 @@ sort_normal_mode_copperlist_addresses
     ; default copperlist addresses: following
     move.l  a1,copperlist_address(a0)
     addq.l   #8,a1
-
-    add.w   #Enemy_SIZEOF,a0
-    dbf d7,.igloop
-.no_other_enemies
-  
-    ; thief
-    lea game_palette+56(pc),a3  ; 4 last colors
-    tst.b   rustler_level
-    beq.b   .no_rustler_2    
-    lea alt_sprite_palette+24(pc),a3  ; 4 last colors
-.no_rustler_2
-    lea     enemies(pc),a0
-    move.l (a3)+,palette(a0)
-    move.l (a3)+,palette+4(a0)
-    move.l  #thief_sprite,copperlist_address(a0)
-	rts
-	
-	; toDO remove rendundant palette set
-	
-init_enemies
-    move.b  d0,d4
-    lea enemies+Enemy_SIZEOF(pc),a0
-    lea enemy_sprites,a1   ; the sprite part of the copperlist, sprite 1-7 are the ghost sprites
-    
-    ; palette depends on the level number
-    lea alt_sprite_palette(pc),a3  ; the sprite part of the color palette 16-31
-    move.l #cattle_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
-    move.l #cattle_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
-    tst.b   bonus_sprites
-    bne.b   .rustler
-    tst.b   rustler_level
-    bne.b   .rustler
-    lea game_palette+32(pc),a3  ; the sprite part of the color palette 16-31
-    move.l #police_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
-    move.l #police_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
-.rustler
-    move.w  level_number(pc),d0
-    and.w   #3,d0
-    lsl.w   #2,d0
-    lea     enemy_start_position_table(pc),a2
-    move.l  (a2,d0.w),a2
-    
-    move.w nb_enemies_but_thief(pc),d7
-    beq.b   .no_other_enemies       ; just for test mode
-    subq.w  #1,d7
-    moveq.l #0,d0
-    moveq.w #1,d1
-    clr.w   d2
-    
-    lea enemies+Enemy_SIZEOF(pc),a0
-.igloop
-    ; copy all 4 "normal" colors
-    move.l (a3),palette(a0)
-    move.l (4,a3),palette+4(a0)
-
-    ; default copperlist addresses: following
-    move.l  a1,copperlist_address(a0)
-    addq.l   #8,a1
-    
-    tst.b   d4
-    bne.b   .no_reset
-
-    clr.w   speed_table_index(a0)
-.no_reset    
-    ; all police try to go down and right or left alternately
-    move.w  d1,h_speed(a0)
-    neg.w   d1
-    move.w  #1,v_speed(a0)
-
-   
-    clr.w   turn_lock(a0)
-	move.w	(a2)+,xpos(a0)
-    move.w  (a2)+,d0
-    addq.w  #4,d0
-	move.w	d0,ypos(a0)
-	clr.b	fright_mode(a0)
-    move.w  #DOWN,direction(a0)
-    move.w  #MODE_NORMAL,mode(a0)
-    move.w  #MODE_NORMAL,previous_mode(a0)
     ; WTF was I thinking with this code. This makes no sense and is completely
 	; useless and buggy for 6+1 enemies
 	; all palette entries are the same for amidar moving enemies
@@ -1516,6 +1439,63 @@ init_enemies
     move.l (a3)+,palette(a0)
     move.l (a3)+,palette+4(a0)
     move.l  #thief_sprite,copperlist_address(a0)
+	rts
+		
+init_enemies
+    move.b  d0,d4
+    lea enemies+Enemy_SIZEOF(pc),a0
+    
+	clr.w	respawn_direction
+    move.l #cattle_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
+    move.l #cattle_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
+    tst.b   bonus_sprites
+    bne.b   .rustler
+    tst.b   rustler_level
+    bne.b   .rustler
+    move.l #police_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
+    move.l #police_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
+.rustler
+    move.w  level_number(pc),d0
+    and.w   #3,d0
+    lsl.w   #2,d0
+    lea     enemy_start_position_table(pc),a2
+    move.l  (a2,d0.w),a2
+    
+    move.w nb_enemies_but_thief(pc),d7
+    beq.b   .no_other_enemies       ; just for test mode
+    subq.w  #1,d7
+    moveq.l #0,d0
+    moveq.w #1,d1
+    
+    lea enemies+Enemy_SIZEOF(pc),a0
+.igloop
+    
+    tst.b   d4
+    bne.b   .no_reset
+
+    clr.w   speed_table_index(a0)
+.no_reset    
+    ; all police try to go down and right or left alternately
+    move.w  d1,h_speed(a0)
+    neg.w   d1
+    move.w  #1,v_speed(a0)
+
+   
+    clr.w   turn_lock(a0)
+	move.w	(a2)+,xpos(a0)
+    move.w  (a2)+,d0
+    addq.w  #4,d0
+	move.w	d0,ypos(a0)
+	clr.b	fright_mode(a0)
+    move.w  #DOWN,direction(a0)
+    move.w  #MODE_NORMAL,mode(a0)
+    move.w  #MODE_NORMAL,previous_mode(a0)
+
+    add.w   #Enemy_SIZEOF,a0
+    dbf d7,.igloop
+.no_other_enemies
+  
+    lea     enemies(pc),a0
     move.w  #UP,direction(a0)
     move.w  #MODE_BORDER_PATROL,mode(a0)
     move.w  #MODE_BORDER_PATROL,previous_mode(a0)
@@ -1525,7 +1505,6 @@ init_enemies
 	move.w	#Y_MAX,ypos(a0)
 	move.w	#X_MAX,xpos(a0)
 
-	; tODO remove redundant call FUCK
 	
     bsr update_color_addresses
     ; all enemies normal palette
@@ -4430,13 +4409,27 @@ update_all
 .gloop
     ; no power state, reset old mode
     move.w  mode(a0),d2
-	cmp.w	#MODE_HANG,d2
-	bne.b	.no_hang
+
+    cmp.w   #MODE_HANG,d2
+    bne.b   .no_hang
     ; subtract 8 again
     subq.w  #8,ypos(a0)
 .no_hang
+
 	cmp.w	#MODE_FALL,d2
-	beq.b	.no_reset_mode
+	beq.b	.no_reset_mode	
+	; set a different direction lock each time to avoid
+	; that enemies respawn at the exact same time & location	
+	move.w	respawn_direction(pc),d0
+	addq.w	#2,d0
+	cmp.w	#6,d0
+	bne.b	.no_wrap_dir
+	clr.w	d0
+.no_wrap_dir
+	move.w	d0,respawn_direction
+	lea		respawn_direction_table(pc),a1
+	move.w	(a1,d0.w),turn_lock(a0)
+	
 	move.w	previous_mode(a0),mode(a0)
 .no_reset_mode
 	clr.b	fright_mode(a0)
@@ -5363,7 +5356,7 @@ move_killed
     clr.w   fall_hang_timer(a4)
     clr.w   fall_hang_toggle(a4)
     clr.w   previous_ypos(a4)
-    addq.w  #8,ypos(a4)
+    addq.w  #8,ypos(a4)		; MODE_HANG: lower
     rts
     
     
@@ -5785,7 +5778,6 @@ set_enemy_normal_palette
 ; trashes: D0,A0,A1
 	
 set_enemies_normal_palette
-	move.w	#$F00,$DFF180
 	bsr		sort_normal_mode_copperlist_addresses
 	; now that addresses have been separated (fright color/normal color)
 	; update the color palette addresses
@@ -7902,7 +7894,12 @@ bonus_score_display_message:
     dc.w    0
 extra_life_message:
     dc.w    0
-    
+respawn_direction
+	dc.w	0
+respawn_direction_table
+	dc.w	0
+	dc.w	30
+	dc.w	70
 score_table
     dc.w    0,1,5
 nb_enemy_table

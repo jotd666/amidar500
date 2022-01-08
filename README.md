@@ -42,9 +42,10 @@ ISSUES:
 
 - reorganize sprites to match various palettes when an enemy is killed
   => working, refactor init_enemies once it's working
-- check arcade game if 2 enemies are killed in the same place what happens
-  when they respawn (hang AND fall) avoid enemy fusion
+- if 2 enemies are killed in the same place what happens
+  when they respawn (fall) avoid enemy fusion: fall after a random time, respawn from fall after a random time
 - small bits of paint not removed when rolling back
+- add/sub 8 when hanging: change it on display, don't change ypos
 
 CREDITS:
 
