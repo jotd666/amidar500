@@ -8,7 +8,7 @@ the original, though.
 REQUIRES:
 
 - any 68k CPU
-- Kickstart 1.3, 512k memory or
+- Kickstart 1.3, 1MB memory
 - Kickstart 2.0, 1MB memory
 
 FEATURES:
@@ -38,15 +38,6 @@ HOW TO PLAY:
   enemies
 - after a while, the white thief (aka tracer) will start following you. Don't wait too long!
 
-ISSUES:
-
-- reorganize sprites to match various palettes when an enemy is killed
-  => working, refactor init_enemies once it's working
-- if 2 enemies are killed in the same place what happens
-  when they respawn (fall) avoid enemy fusion: fall after a random time, respawn from fall after a random time
-- small bits of paint not removed when rolling back
-- add/sub 8 when hanging: change it on display, don't change ypos
-
 CREDITS:
 
 - Jean-Francois Fabre (aka jotd): code and gfx/sfx conversion
@@ -56,6 +47,12 @@ CREDITS:
 - eab forum: useful advice & support
 - Superjustinbros: sprite rips https://www.spriters-resource.com/arcade/amidar
 - konami: original game :)
+
+MINOR ISSUES:
+
+- small bits of paint not removed when rolling back
+- sometimes palette mixups when enemies are frightened and some are hanging/falling/killed
+- in VERY rare cases, power music doesn't loop properly
 
 BUILDING FROM SOURCES:
 

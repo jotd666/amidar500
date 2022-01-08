@@ -69,6 +69,7 @@ INTERRUPTS_ON_MASK = $E038
     UWORD   previous_xpos
     UWORD   previous_ypos
     UWORD   score_frame
+	UWORD	respawn_delay
     UWORD    mode_timer     ; number of 1/50th to stay in the current mode (thief only)
     UWORD    mode           ; current mode
     UWORD    previous_mode           ; previous mode
@@ -94,7 +95,7 @@ Execbase  = 4
 ; ---------------debug/adjustable variables
 
 ; if set skips intro, game starts immediately
-DIRECT_GAME_START
+;DIRECT_GAME_START
 
 ; if set, filling/completing one rectangle completes level
 
@@ -119,7 +120,7 @@ DIRECT_GAME_START
 ; 
 ;START_NB_LIVES = 1
 ;START_SCORE = 1000/10
-;START_LEVEL = 4
+;START_LEVEL = 2
 
 ; temp if nonzero, then records game input, intro music doesn't play
 ; and when one life is lost, blitzes and a0 points to move record table
@@ -978,6 +979,7 @@ commit_paint
 	
 f_unpainted_to_painted
 f_remains_painted
+	bsr		stop_paint_sound
 	; store the tile we're starting from
 	lsr.w	#3,d2
 	lsr.w	#3,d3
@@ -1443,9 +1445,11 @@ sort_normal_mode_copperlist_addresses
 		
 init_enemies
     move.b  d0,d4
+	
+
+
     lea enemies+Enemy_SIZEOF(pc),a0
     
-	clr.w	respawn_direction
     move.l #cattle_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
     move.l #cattle_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
     tst.b   bonus_sprites
@@ -1480,7 +1484,7 @@ init_enemies
     neg.w   d1
     move.w  #1,v_speed(a0)
 
-   
+    clr.w	respawn_delay(a0)
     clr.w   turn_lock(a0)
 	move.w	(a2)+,xpos(a0)
     move.w  (a2)+,d0
@@ -1587,9 +1591,10 @@ sort_fright_mode_copperlist_addresses
     lea enemies(pc),a0
 	lea	.fright_enemy_list(pc),a1
 	lea	.killed_enemy_list(pc),a2
+	move.w	#MODE_CHASE,d1
 .loop
-	cmp.w	#MODE_HANG,mode(a0)
-	bcc.b	.killed
+	cmp.w	mode(a0),d1
+	bcs.b	.killed
 	; still alive
 	move.l	a0,(a1)+
 	bra.b	.endloop
@@ -1601,15 +1606,13 @@ sort_fright_mode_copperlist_addresses
 
 	sub.l	#.fright_enemy_list,a1
 	sub.l	#.killed_enemy_list,a2
-	move.l	a1,d0
-	lsr.l	#2,d0
-	move.w	d0,d1	; nb fright enemies
-	btst	#0,d0
+	move.l	a1,d1
+	lsr.l	#2,d1	; nb fright enemies
+	btst	#0,d1
 	seq.b	d3	; 0: even fright enemies
 
-	move.l	a2,d0
-	lsr.l	#2,d0
-	move.w	d0,d2	; nb killed enemies
+	move.l	a2,d2
+	lsr.l	#2,d2	; nb killed enemies
 	
 	lea   enemy_sprites,a2
 	
@@ -3825,7 +3828,7 @@ level2_interrupt:
     beq.b   .no_esc
     cmp.w   #STATE_GAME_START_SCREEN,current_state
     beq.b   .no_esc
-    move.l  #ORIGINAL_TICKS_PER_SEC*2,state_timer
+    move.l  #1,state_timer
     move.w  #STATE_GAME_OVER,current_state
 .no_esc
     
@@ -4410,26 +4413,16 @@ update_all
     ; no power state, reset old mode
     move.w  mode(a0),d2
 
+	cmp.w	#MODE_FALL,d2
+	beq.b	.no_reset_mode
+	cmp.w	#MODE_CRASH,d2
+	beq.b	.no_reset_mode
+
     cmp.w   #MODE_HANG,d2
     bne.b   .no_hang
     ; subtract 8 again
     subq.w  #8,ypos(a0)
 .no_hang
-
-	cmp.w	#MODE_FALL,d2
-	beq.b	.no_reset_mode	
-	; set a different direction lock each time to avoid
-	; that enemies respawn at the exact same time & location	
-	move.w	respawn_direction(pc),d0
-	addq.w	#2,d0
-	cmp.w	#6,d0
-	bne.b	.no_wrap_dir
-	clr.w	d0
-.no_wrap_dir
-	move.w	d0,respawn_direction
-	lea		respawn_direction_table(pc),a1
-	move.w	(a1,d0.w),turn_lock(a0)
-	
 	move.w	previous_mode(a0),mode(a0)
 .no_reset_mode
 	clr.b	fright_mode(a0)
@@ -4449,7 +4442,6 @@ update_all
 	lea	enemies(pc),a0	
 	bsr	trigger_chase_mode	
 .tracer_not_killed
-
 
 .skip_a_lot
 
@@ -4539,12 +4531,12 @@ check_collisions
     lsr.l   d3,d0		; shift both X and Y
 	move.w	#$1FFF,d1	; pre-load mask value
 	and.w	d1,d0	; remove shifted X bits that propagated to Y LSW
-    move.w	#MODE_HANG,d4	; pre-load mode limit
+    move.w	#MODE_CHASE,d4	; pre-load mode limit
     lea enemies(pc),a4
     move.w  nb_enemies_but_thief(pc),d7    ; plus one
 .gloop
 	cmp.w	mode(a4),d4
-	bcs.b	.nomatch	; ignore those killed modes
+	bcs.b	.nomatch	; ignore those killed modes above MODE_CHASE
 	; this is probably much faster than shifting X & Y to compute tile
     move.l  xpos(a4),d2		; get X and Y, same as for player (see above)
     lsr.l   d3,d2		; one shift
@@ -5631,8 +5623,24 @@ move_crash
     eor.w  #4,fall_hang_toggle(a4)
 .no_change
     move.w  d0,fall_hang_timer(a4)
+	
+	; also check if we can get out of the crashed state FUCK TODO
+	; not before power state has ended
+	tst.w	power_state_counter
+    bne.b   .still_power
+
+	move.w	respawn_delay(a4),d0
+	beq.b	.respawn
+	; don't respawn right now
+	subq.w	#1,d0
+	move.w	d0,respawn_delay(a4)
+.still_power	
     rts
-    
+.respawn
+    move.w  previous_mode(a4),mode(a4)
+	rts
+	
+	
 move_fall
     ; fall and crater or keep falling and respawn on top if power state ends
     ; before enemy hits the ground
@@ -5683,6 +5691,26 @@ move_fall
 .crash
     move.w  #MAZE_HEIGHT,ypos(a4)
     move.w  #MODE_CRASH,mode(a4)
+	; choose a crash delay timer value depending
+	; on x coord, to avoid that enemies that crashed
+	; at the exact same spot respawn at the exact same
+	; time, and followinf the exact same direction: enemies
+	; would be merged and less deadly then. We don't want that
+	; to happen (the arcade game avoids that situation at all costs
+	; too, even if I'm not sure that it uses the same technique)
+	move.w	xpos(a4),d0
+	lsr.w	#3,d0
+	add.w	d0,d0
+	lea	crash_respawn_delay_table(pc),a0
+	add.w	d0,a0
+	move.w	(a0),d0
+	move.w	d0,respawn_delay(a4)		; select this value
+	add.w	#ORIGINAL_TICKS_PER_SEC,d0	
+	cmp.w	#ORIGINAL_TICKS_PER_SEC*4,d0
+	bcs.b	.no_wrap_crash
+	clr.w	d0
+.no_wrap_crash
+	move.w	d0,(a0)
     lea enemy_hit_sound,a0
     bsr play_fx
 .no_first
@@ -5702,6 +5730,13 @@ play_loop_fx
 ; trashes: A0,D0
 all_four_corners_done
     movem.l  d1-d2/a1,-(a7)
+	; reset crash respawn delay table
+	lea	crash_respawn_delay_table(pc),a0
+	moveq.w	#6,d0
+.clr
+	; 6*2 bytes
+	clr.l	(a0)+
+	dbf	d0,.clr	
     ; resets next enemy eaten score
     clr.w  next_enemy_iteration_score
     lea enemies(pc),a0
@@ -6265,12 +6300,15 @@ play_paint_sound
     
    
 stop_paint_sound:
+	tst.b	was_playing_paint_sound
+	beq.b	.no_stop
     movem.l d0/a6,-(a7)
     lea _custom,a6
     moveq.l #3,d0
     bsr     _mt_stopfx      ; stop paint loop
     clr.b   was_playing_paint_sound
     movem.l (a7)+,d0/a6
+.no_stop
     rts
 
 set_stored_tiles:
@@ -7894,12 +7932,8 @@ bonus_score_display_message:
     dc.w    0
 extra_life_message:
     dc.w    0
-respawn_direction
-	dc.w	0
-respawn_direction_table
-	dc.w	0
-	dc.w	30
-	dc.w	70
+crash_respawn_delay_table
+	ds.w	26		; 6 x positions spaced by 4 unused slots, but let's make it safe
 score_table
     dc.w    0,1,5
 nb_enemy_table
