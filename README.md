@@ -40,8 +40,11 @@ HOW TO PLAY:
 
 ISSUES:
 
-- reorganize sprites to match various palettes when an enemy is killed (tricky!)
-- sometimes no bonus level (very rare, but systematic with fast forward)
+- reorganize sprites to match various palettes when an enemy is killed
+  => working, refactor init_enemies once it's working
+- check arcade game if 2 enemies are killed in the same place what happens
+  when they respawn (hang AND fall) avoid enemy fusion
+- small bits of paint not removed when rolling back
 
 CREDITS:
 

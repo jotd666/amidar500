@@ -96,6 +96,10 @@ Execbase  = 4
 ; if set skips intro, game starts immediately
 DIRECT_GAME_START
 
+; if set, filling/completing one rectangle completes level
+
+;ONE_RECTANGLE_COMPLETES_LEVEL
+
 ; if set, only the tracer/thief is in play
 
 ;ONLY_TRACER
@@ -951,7 +955,10 @@ commit_paint
     
     bsr     fill_rectangle
     subq.b  #1,nb_rectangles
-    beq.b   level_completed ; bail out: level was completed
+    seq.b   level_completed_flag ; bail out: level was completed
+	IFD		ONE_RECTANGLE_COMPLETES_LEVEL
+	st.b	level_completed_flag
+	ENDC
     cmp.l   a1,a2
     bne.b   .vloop
     
@@ -1373,7 +1380,7 @@ draw_current_score:
     
     
 hide_sprites:
-    move.w  #7,d1
+    moveq.w  #7,d1
     lea  sprites,a0
     lea empty_sprite,a1
 .emptyspr
@@ -1383,23 +1390,51 @@ hide_sprites:
     addq.l  #8,a0
     dbf d1,.emptyspr
     rts
+
+sort_normal_mode_copperlist_addresses
+    lea enemies+Enemy_SIZEOF(pc),a0
+    lea enemy_sprites,a1   ; the sprite part of the copperlist, sprite 1-7 are the ghost sprites
     
-hide_enemy_sprites:
-    move.w  #6,d1
-    lea  sprites,a0
-    lea empty_sprite,a1
-.emptyspr
-
-    move.l  a1,d0
-    bsr store_sprite_copperlist
-    add.w  #16,a0
-    dbf d1,.emptyspr
-    rts
-
-
-
-
+    ; palette depends on the level number
+    lea alt_sprite_palette(pc),a3  ; the sprite part of the color palette 16-31
+    tst.b   bonus_sprites
+    bne.b   .rustler
+    tst.b   rustler_level
+    bne.b   .rustler
+    lea game_palette+32(pc),a3  ; the sprite part of the color palette 16-31
+.rustler
+    move.w nb_enemies_but_thief(pc),d7
+    beq.b   .no_other_enemies       ; just for test mode
+    subq.w  #1,d7
     
+    lea enemies+Enemy_SIZEOF(pc),a0
+.igloop
+    ; copy all 4 "normal" colors
+    move.l (a3),palette(a0)
+    move.l (4,a3),palette+4(a0)
+
+    ; default copperlist addresses: following
+    move.l  a1,copperlist_address(a0)
+    addq.l   #8,a1
+
+    add.w   #Enemy_SIZEOF,a0
+    dbf d7,.igloop
+.no_other_enemies
+  
+    ; thief
+    lea game_palette+56(pc),a3  ; 4 last colors
+    tst.b   rustler_level
+    beq.b   .no_rustler_2    
+    lea alt_sprite_palette+24(pc),a3  ; 4 last colors
+.no_rustler_2
+    lea     enemies(pc),a0
+    move.l (a3)+,palette(a0)
+    move.l (a3)+,palette+4(a0)
+    move.l  #thief_sprite,copperlist_address(a0)
+	rts
+	
+	; toDO remove rendundant palette set
+	
 init_enemies
     move.b  d0,d4
     lea enemies+Enemy_SIZEOF(pc),a0
@@ -1417,8 +1452,6 @@ init_enemies
     move.l #police_fright_palette,fright_palette  ; the sprite part of the color palette 16-31
     move.l #police_fright_blink_palette,fright_blink_palette  ; the sprite part of the color palette 16-31
 .rustler
-
-
     move.w  level_number(pc),d0
     and.w   #3,d0
     lsl.w   #2,d0
@@ -1438,7 +1471,7 @@ init_enemies
     move.l (a3),palette(a0)
     move.l (4,a3),palette+4(a0)
 
-    
+    ; default copperlist addresses: following
     move.l  a1,copperlist_address(a0)
     addq.l   #8,a1
     
@@ -1482,19 +1515,21 @@ init_enemies
     lea     enemies(pc),a0
     move.l (a3)+,palette(a0)
     move.l (a3)+,palette+4(a0)
+    move.l  #thief_sprite,copperlist_address(a0)
     move.w  #UP,direction(a0)
     move.w  #MODE_BORDER_PATROL,mode(a0)
     move.w  #MODE_BORDER_PATROL,previous_mode(a0)
     clr.w   h_speed(a0)     ; moving up at start
     move.w  #-1,v_speed(a0)     ; moving up at start
 
-    move.l  #thief_sprite,copperlist_address(a0)
 	move.w	#Y_MAX,ypos(a0)
 	move.w	#X_MAX,xpos(a0)
 
+	; tODO remove redundant call FUCK
+	
     bsr update_color_addresses
     ; all enemies normal palette
-    bsr set_enemy_normal_palette
+    bsr set_enemies_normal_palette
 
     move.w   #50,d1
     ; speeds & attack timeouts
@@ -1550,11 +1585,94 @@ init_enemies
     
     rts
 
+; if fright mode (else it's useless), organize
+; copperlist addresses for each enemy sprite
+; so when calling "update_color_addresses" and
+; then "set_enemy_normal_palette" for the enemy
+; which is falling/hanging (or showing kill score)
+; then the still active & frightened enemies
+; have the frightened colors whereas
+; the hanging/falling enemies have the normal colors
+;
+; in the arcade game, this is probably trivial to do but
+; on the amiga, color palette is shared between each sprite pair
+; so we have to group enemies which are normally moving and
+; we have to group enemies which are hanging/falling
+; we have only 7 sprites shown so if there is an odd number of
+; whatever group, it's not a problem, one sprite can have the palette
+; for itself
+
+sort_fright_mode_copperlist_addresses
+    move.w nb_enemies_but_thief(pc),d7
+    ; first pass: count and separate enemies
+    lea enemies(pc),a0
+	lea	.fright_enemy_list(pc),a1
+	lea	.killed_enemy_list(pc),a2
+.loop
+	cmp.w	#MODE_HANG,mode(a0)
+	bcc.b	.killed
+	; still alive
+	move.l	a0,(a1)+
+	bra.b	.endloop
+.killed
+	move.l	a0,(a2)+
+.endloop
+	add.w	#Enemy_SIZEOF,a0
+	dbf		d7,.loop
+
+	sub.l	#.fright_enemy_list,a1
+	sub.l	#.killed_enemy_list,a2
+	move.l	a1,d0
+	lsr.l	#2,d0
+	move.w	d0,d1	; nb fright enemies
+	btst	#0,d0
+	seq.b	d3	; 0: even fright enemies
+
+	move.l	a2,d0
+	lsr.l	#2,d0
+	move.w	d0,d2	; nb killed enemies
+	
+	lea   enemy_sprites,a2
+	
+	; first start by fright enemies
+	lea	.fright_enemy_list(pc),a1
+	subq.w	#1,d1
+	bmi.b	.no_fright
+.floop
+	move.l	(a1)+,a0
+	move.l	a2,copperlist_address(a0)
+    addq.w   #8,a2
+	dbf		d1,.floop
+.no_fright
+    
+    tst.b	d3
+	bne.b	.no_align
+	addq.w   #8,a2
+.no_align
+	; first start by fright enemies
+	lea	.killed_enemy_list(pc),a1
+	subq.w	#1,d2
+	bmi.b	.no_killed
+.kloop
+	move.l	(a1)+,a0
+	move.l	a2,copperlist_address(a0)
+    addq.w   #8,a2
+	dbf		d2,.kloop
+.no_killed
+
+	rts
+
+.fright_enemy_list:
+	ds.l	8		; 8 addresses maximum
+.killed_enemy_list:
+	ds.l	8
+
 ; from copperlist addresses update color addresses
 ; this allows to move sprites up/down the copperlist
-; and recompute color addresses accordingly    
+; and recompute color addresses accordingly
+; trashes D7,D0,D1,A0,A1,A2
+  
 update_color_addresses
-    
     lea   enemy_sprites,a2
     move.w nb_enemies_but_thief(pc),d7
     move.l #_custom+color+32,d1
@@ -3748,9 +3866,8 @@ level2_interrupt:
     beq.b   .no_playing
         
     cmp.b   #$50,d0
-    bne.b   .no_lskip
-    bsr     level_completed
-.no_lskip
+    seq.b   level_completed_flag
+
     cmp.b   #$51,d0
     bne.b   .no_invincible
     eor.b   #1,invincible_cheat_flag
@@ -3991,6 +4108,8 @@ update_all
     bne.b   .no_first_bonus_tick
 
     addq.l  #1,state_timer
+
+    clr.b  next_level_is_bonus_level
    
     clr.w   bonus_level_lane_select_subcounter
     move.w  #ORIGINAL_TICKS_PER_SEC*4,bonus_text_screen_countdown
@@ -4183,7 +4302,6 @@ update_all
     bsr     stop_sounds
 .next_level
      move.w  #STATE_NEXT_LEVEL,current_state
-     clr.b  next_level_is_bonus_level
      clr.b  bonus_sprites
      rts
      
@@ -4203,19 +4321,33 @@ update_all
     rts
     ; update
 .playing
+	tst.b	level_completed_flag
+	beq.b	.no_completed1
+	clr.b	level_completed_flag
+
+	; avoids bonus music when level is completed with
+	; one of the corners
+	clr.w	can_eat_enemies_mode_pending
+    bsr stop_sounds
+    moveq.l  #8,d0
+    bsr play_music
+    st.b    next_level_is_bonus_level
+    move.w  #ORIGINAL_TICKS_PER_SEC*6,completed_music_timer
+.no_completed1
     move.w   completed_music_timer(pc),d0
-    beq.b   .no_completed
+    beq.b   .no_completed2
     subq.w  #1,d0
     move.w  d0,completed_music_timer
     bne.b   .completed_music_playing
     
     bsr stop_sounds
+	
     move.w  #STATE_NEXT_LEVEL,current_state
     clr.l   state_timer     ; without this, bonus level isn't drawn
     bsr     hide_sprites    ; hide sprites as bonus level only uses 1 or 2 sprites
 .completed_music_playing
     rts
-.no_completed
+.no_completed2
 
     tst.l   state_timer
     bne.b   .no_first_tick
@@ -4283,6 +4415,9 @@ update_all
     move.w  d0,power_state_counter
     bne.b   .power_continues
 
+    ; reset enemies palette
+    bsr set_enemies_normal_palette
+
 	; reset enemies to lethal
 	lea	enemies(pc),a0
 
@@ -4324,9 +4459,6 @@ update_all
 
 
 .skip_a_lot
-    ; reset enemies palette
-
-    bsr set_enemy_normal_palette
 
     tst.w   player_killed_timer
     bmi.b   .normal_music     ; player killed, no music management
@@ -4389,7 +4521,6 @@ BLINK_BASE_TIME = POWER_SONG_LENGTH+POWER_SONG_LENGTH/2
 start_music_countdown
     dc.w    0
 
-COLLISION_SHIFTING_PRECISION = 3
 
 set_thief_attack_mode
     st.b    thief_attacks
@@ -4403,24 +4534,29 @@ reset_thief_attack_mode
 	; always a short time before heads for first objective
     move.w  #ORIGINAL_TICKS_PER_SEC,thief_standby_timer
     rts
-    
+	
+; hacked quick tile collision detection
+; trashes a lot of registers but is probably
+; pretty fast specially when 7 enemies are around
+
 check_collisions
     lea player(pc),a3
-    move.w  xpos(a3),d0
-    move.w  ypos(a3),d1
-    lsr.w   #COLLISION_SHIFTING_PRECISION,d0
-    lsr.w   #COLLISION_SHIFTING_PRECISION,d1
-    
+    move.l  xpos(a3),d0	; get X<<16 | Y
+	moveq.l	#3,d3		; pre-load shift value
+    lsr.l   d3,d0		; shift both X and Y
+	move.w	#$1FFF,d1	; pre-load mask value
+	and.w	d1,d0	; remove shifted X bits that propagated to Y LSW
+    move.w	#MODE_HANG,d4	; pre-load mode limit
     lea enemies(pc),a4
     move.w  nb_enemies_but_thief(pc),d7    ; plus one
 .gloop
-    move.w  xpos(a4),d2
-    move.w  ypos(a4),d3
-    lsr.w   #COLLISION_SHIFTING_PRECISION,d2
-    lsr.w   #COLLISION_SHIFTING_PRECISION,d3
-    cmp.w   d2,d0
-    bne.b   .nomatch
-    cmp.w   d3,d1
+	cmp.w	mode(a4),d4
+	bcs.b	.nomatch	; ignore those killed modes
+	; this is probably much faster than shifting X & Y to compute tile
+    move.l  xpos(a4),d2		; get X and Y, same as for player (see above)
+    lsr.l   d3,d2		; one shift
+	and.w	d1,d2		; small masking operation
+    cmp.l   d2,d0		; one comparison
     beq.b   .collision
 .nomatch
     add.w   #Enemy_SIZEOF,a4
@@ -4428,10 +4564,8 @@ check_collisions
     rts
 .collision
     ; is the enemy falling, hanging, whatever...
-	cmp.w	#MODE_HANG,mode(a4)
-	bcc.b	.nomatch	; ignore those killed modes
     tst.b   fright_mode(a4)
-    bne.b   .pac_eats_ghost
+    bne.b   .player_kills_enemy
 	
     ; player is killed
     tst.b   invincible_cheat_flag
@@ -4449,19 +4583,27 @@ check_collisions
     bra     play_fx
    
 
-.pac_eats_ghost:   
-    
+.player_kills_enemy:    
     ; depending on the x coordinate, hang or fall
     move.w  #MODE_KILLED,mode(a4)    
     ; display score (2 seconds)
     move.w  #ENEMY_KILL_TIMER,score_display_timer(a4)
     
-    cmp.w   #STATE_PLAYING,current_state
-    bne.b   .no_sound
     lea     enemy_killed_sound(pc),a0
     bsr     play_fx
-.no_sound
-    sub.w   #1,nb_enemies_to_eat
+
+	bsr		sort_fright_mode_copperlist_addresses
+	; now that addresses have been separated (fright color/normal color)
+	; update the color palette addresses
+	bsr		update_color_addresses
+	; hide all sprites as positions have been rearranged
+	bsr		hide_sprites
+	; set normal palette for this enemy (and possibly the other one
+	; in the same group but it doesn't matter as it's already done)
+	move.l	a4,a0
+	bsr		set_enemy_normal_palette
+	
+    subq.w   #1,nb_enemies_to_eat
     move.w   next_enemy_iteration_score(pc),d1
     move.l  d1,d0
     add.w   #SCORE_FIRST_FRAME,d0
@@ -5601,8 +5743,8 @@ set_enemy_power_state_palette
     move.l  fright_palette(pc),a2   ; same for all enemies
     move.w  nb_enemies_but_thief(pc),d0       ; plus one
 .gloop
-    tst.b	fright_mode(a0)
-    beq.b   .next
+    cmp.w	#MODE_HANG,mode(a0)
+    bcc.b   .next
     move.l  color_register(a0),a1
     ; set/reset palette
     move.l  (a2),(a1)+
@@ -5619,8 +5761,8 @@ set_enemy_power_blink_palette
     move.l  fright_blink_palette(pc),a2   ; same for all enemies
     move.w  nb_enemies_but_thief(pc),d0       ; plus one
 .gloop
-    tst.b	fright_mode(a0)
-    beq.b   .next
+    cmp.w	#MODE_HANG,mode(a0)
+    bcc.b   .next
     move.l  color_register(a0),a1
     ; set/reset palette
     move.l  (a2),(a1)+
@@ -5631,16 +5773,30 @@ set_enemy_power_blink_palette
     movem.l  (a7)+,d1/a1/a2
     rts
 
-; < A0: ghost structure
-; trashes: D0,A0,A1
+; < A0: enemy structure
+; trashes: A0,A1
 set_enemy_normal_palette
-    move.w  nb_enemies_but_thief(pc),d0
-    lea enemies(pc),a0
-.gloop
-    move.l  color_register(a0),a1
+	move.l  color_register(a0),a1
     ; set/reset palette
     move.l  palette(a0),(a1)+
     move.l  palette+4(a0),(a1)
+	rts
+	
+; trashes: D0,A0,A1
+	
+set_enemies_normal_palette
+	move.w	#$F00,$DFF180
+	bsr		sort_normal_mode_copperlist_addresses
+	; now that addresses have been separated (fright color/normal color)
+	; update the color palette addresses
+	bsr		update_color_addresses
+	; hide all sprites as positions have been rearranged
+	bsr		hide_sprites
+	
+    move.w  nb_enemies_but_thief(pc),d0
+    lea enemies(pc),a0
+.gloop
+	bsr	set_enemy_normal_palette
 .next
     add.w   #Enemy_SIZEOF,a0
     dbf d0,.gloop
@@ -6264,7 +6420,10 @@ count_dot
     bne.b   .still_dots
     bsr     fill_rectangle
     subq.b  #1,nb_rectangles
-    beq.b   level_completed
+    seq.b   level_completed_flag
+	IFD		ONE_RECTANGLE_COMPLETES_LEVEL
+    st.b   level_completed_flag
+	ENDC
     clr     d0
 .still_dots
     move.w  d0,cdots(a0)
@@ -6473,16 +6632,6 @@ animate_player
     rts
 
 
-level_completed:
-	; avoids bonus music when level is completed with
-	; one of the corners
-	clr.w	can_eat_enemies_mode_pending
-    bsr stop_sounds
-    moveq.l  #8,d0
-    bsr play_music
-    st.b    next_level_is_bonus_level
-    move.w  #ORIGINAL_TICKS_PER_SEC*6,completed_music_timer
-    rts
 
     
 ; the palette is organized so we only need to blit planes 0, 2 and 3 (not 1)
@@ -7699,6 +7848,8 @@ next_level_is_bonus_level
     dc.b    0
 nb_lives:
     dc.b    0
+level_completed_flag
+	dc.b	0
 rustler_level:
     dc.b    0
 corner_sideeffect_paint
@@ -8010,7 +8161,7 @@ SOUND_ENTRY:MACRO
     SOUND_ENTRY enemy_falling,2,SOUNDFREQ,48
     SOUND_ENTRY enemy_killed,2,SOUNDFREQ,56
     SOUND_ENTRY extra_life,2,SOUNDFREQ,56
-    SOUND_ENTRY thief_attacks,2,SOUNDFREQ,64
+    SOUND_ENTRY thief_attacks,2,SOUNDFREQ,48
     SOUND_ENTRY player_killed,2,SOUNDFREQ,40
     SOUND_ENTRY credit,1,SOUNDFREQ,64
     SOUND_ENTRY eat,3,SOUNDFREQ,16
