@@ -50,6 +50,7 @@ CREDITS:
 
 MINOR ISSUES:
 
+- paint sound stops with a slight increase of volume
 - small bits of paint not removed when rolling back
 - sometimes palette mixups when enemies are frightened and some are hanging/falling/killed
 - in VERY rare cases, power music doesn't loop properly
@@ -78,5 +79,3 @@ Build process:
 - get "bitplanelib.py" (asset conversion tool needs it) at https://github.com/jotd666/amiga68ktools.git
 
 Binary assets must be created first, then makefile must be called to create the "mspacman" program
-
-

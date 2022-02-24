@@ -248,7 +248,7 @@ MSG_NONE = 0
 MSG_SHOW = 1
 MSG_HIDE = 2
 
-
+BONUS_TEXT_TIMER = ORIGINAL_TICKS_PER_SEC*4
 PLAYER_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 ENEMY_KILL_TIMER = ORIGINAL_TICKS_PER_SEC*2
 GAME_OVER_TIMER = ORIGINAL_TICKS_PER_SEC*3
@@ -372,13 +372,18 @@ Start:
     move.l  #MODE_OLDFILE,d2
     jsr     _LVOOpen(a6)
     move.l  d0,d1
-    beq.b   .startup
+    beq.b   .no_floppy
     
     ; "floppy" file found
     jsr     _LVOClose(a6)
     ; wait 2 seconds for floppy drive to switch off
     move.l  #100,d1
     jsr     _LVODelay(a6)
+.no_floppy
+	; stop cdtv device if found, avoids that cd device
+	; sends spurious interrupts
+    move.l  #CMD_STOP,d0
+    bsr send_cdtv_command
 .startup
 
     lea  _custom,a5
@@ -712,6 +717,10 @@ intro:
     bsr     restore_interrupts
     bsr     wait_blit
     bsr     finalize_sound
+	; restart CDTV device
+    move.l  #CMD_START,d0
+    bsr send_cdtv_command
+
     bsr     save_highscores
 
     lea _custom,a5
@@ -767,7 +776,7 @@ clear_screen
 .cl
     clr.l   (a2)+
     dbf d1,.cl
-    add.l   #SCREEN_PLANE_SIZE,a1
+    add.w   #SCREEN_PLANE_SIZE,a1
     dbf d0,.cp
     rts
 
@@ -1273,7 +1282,6 @@ init_level:
     
     clr.w   power_state_counter
     clr.w   power_song_countdown
-    clr.b   elroy_mode_lock
     
     move.b   #4,nb_special_rectangles
     ; speed table, speed increasing every 2 levels up to level 15
@@ -2106,7 +2114,33 @@ draw_all
 .bonus_screen
     tst.w   bonus_text_screen_countdown
     beq.b   .maze_part
+	; draw it only at start
+	cmp.w	#BONUS_TEXT_TIMER-2,bonus_text_screen_countdown
+	bcs.b	.skip_draw
     bsr     hide_sprites
+
+	; draw banana first. For some reason, doing this avoids
+	; it not being shown in some configurations (WinUAE 68000)
+	; is it a winuae bug or real machine issue? don't know. Fixed.
+	
+    ; banana colors (yellow)
+    lea _custom+color+32,a1  ; sprite 0-1 colors
+    lea banana_sprite_palette(pc),a0
+    move.l  (a0)+,(a1)+
+    move.l  (a0)+,(a1)+
+
+    ; banana sprite at x=60
+    move.w  #60,d0
+    move.w  #96,d1
+    bsr store_sprite_pos
+
+    ; write control word
+    lea banana_sprite,a0
+    move.l  d0,(a0)
+    move.l  a0,d0
+    lea bonus_banana,a0
+    bsr store_sprite_copperlist
+	
     move.w  #72,d0
     move.w  #40,d1
     lea     .bonus_stage_text(pc),a0
@@ -2122,23 +2156,8 @@ draw_all
     lea     .push_jump_button_text(pc),a0
     move.w  #$F0,d2
     bsr     write_color_string
-    ; banana sprite at x=60
-    move.w  #60,d0
-    move.w  #96,d1
-    bsr store_sprite_pos
 
-    ; write control word
-    lea banana_sprite,a0
-    move.l  d0,(a0)
-    move.l  a0,d0
-    lea bonus_banana,a0
-    bsr store_sprite_copperlist
 
-    ; banana colors (yellow)
-    lea _custom+color+32,a1  ; sprite 0-1 colors
-    lea banana_sprite_palette(pc),a0
-    move.l  (a0)+,(a1)+
-    move.l  (a0)+,(a1)+
 
     bsr draw_lives
     bsr draw_stars
@@ -4094,7 +4113,7 @@ update_all
     clr.b  next_level_is_bonus_level
    
     clr.w   bonus_level_lane_select_subcounter
-    move.w  #ORIGINAL_TICKS_PER_SEC*4,bonus_text_screen_countdown
+    move.w  #BONUS_TEXT_TIMER,bonus_text_screen_countdown
 .no_first_bonus_tick
 
     move.w  bonus_text_screen_countdown(pc),d0
@@ -4165,7 +4184,7 @@ update_all
 .no_fire
     ; just selecting lane
     addq.w  #1,bonus_level_lane_select_subcounter
-    cmp.w   #10,bonus_level_lane_select_subcounter
+    cmp.w   #8,bonus_level_lane_select_subcounter
     bne.b   .do_nothing
     clr.w   bonus_level_lane_select_subcounter
     ; play ping sound
@@ -6651,7 +6670,7 @@ record_input:
     rts
     ENDC
     
-; called when pacman moves
+; called when player moves
 ; < A4: pac player
 animate_player
     addq.w  #1,frame(a4)
@@ -6672,10 +6691,9 @@ draw_player:
     move.l  previous_player_address(pc),d5
     bne.b   .not_first_draw
     moveq.l #-1,d5
+	bra.b	.no_erase
 .not_first_draw
     ; first, restore plane 0
-    tst.l   d5    
-    bmi.b   .no_erase
     ; restore plane 0 using CPU
     lea grid_backup_plane,a0    
     lea screen_data,a1
@@ -6734,9 +6752,6 @@ draw_player:
     moveq.l #-1,d2 ; mask
 
     lea	screen_data,a1
-
-    ; apply X offset
-    addq.w #2,d0
     
     move.l  a1,a6
     move.w d3,d0
@@ -7210,7 +7225,7 @@ blit_4_planes
     move.w  #16,d4      ; height
     bsr blit_plane_any_internal
     movem.l (a7)+,d0-d1/a1
-    add.l   #SCREEN_PLANE_SIZE,a1
+    add.w   #SCREEN_PLANE_SIZE,a1
     add.l   #64,a0      ; 32 but shifting!
     dbf d7,.loop
     movem.l (a7)+,d2-d6/a0-a1/a5
@@ -7465,7 +7480,7 @@ write_blanked_color_string:
     movem.l (a7)+,d0-d6/a1/a5
 .next_plane
     lsr.w   #1,d5
-    add.l   #SCREEN_PLANE_SIZE,a1
+    add.w   #SCREEN_PLANE_SIZE,a1
     dbf d3,.plane_loop
 .out
     movem.l (a7)+,D1-D6/A1
@@ -7510,7 +7525,7 @@ write_color_string:
     bsr write_string
 .skip_plane
     lsr.w   #1,d5
-    add.l   #SCREEN_PLANE_SIZE,a1
+    add.w   #SCREEN_PLANE_SIZE,a1
     dbf d3,.plane_loop
 .out
     movem.l (a7)+,D1-D5/A1
@@ -7661,6 +7676,84 @@ load_highscores
 .no_file
     rts
     
+
+; < D0: command to send to cdtv 
+send_cdtv_command:
+	tst.l	_resload
+	beq.b	.go
+	rts		; not needed within whdload (and will fail)
+.go
+	movem.l	d0-a6,-(a7)
+    move.l  d0,d5
+    
+	; alloc some mem for IORequest
+
+	MOVEQ	#40,D0			
+	MOVE.L	#MEMF_CLEAR|MEMF_PUBLIC,D1
+	move.l	$4.W,A6
+	jsr	_LVOAllocMem(a6)
+	move.l	D0,io_request
+	beq	.Quit
+
+	; open cdtv.device
+
+	MOVEA.L	D0,A1
+	LEA	cdtvname(PC),A0	; name
+	MOVEQ	#0,D0			; unit 0
+	MOVE.L	D0,D1			; flags
+	jsr	_LVOOpenDevice(a6)
+	move.l	D0,D6
+	ext	D6
+	ext.l	D6
+	bne	.Quit		; unable to open
+
+    ; wait a while if CMD_STOP
+    cmp.l   #CMD_STOP,d5
+    bne.b   .nowait
+	move.l	_dosbase(pc),A6
+	move.l	#20,D1
+	JSR	_LVODelay(a6)		; wait 2/5 second before launching
+.nowait
+	; prepare the IORequest structure
+
+	MOVEQ	#0,D0
+	MOVEA.L	io_request(pc),A0
+	MOVE.B	D0,8(A0)
+	MOVE.B	D0,9(A0)
+	SUBA.L	A1,A1
+	MOVE.L	A1,10(A0)
+	MOVE.L	A1,14(A0)
+	CLR.L	36(A0)
+
+	move.l	io_request(pc),A0
+
+	move.l	A0,A1
+	move.w	d5,(IO_COMMAND,a1)
+	move.l	$4.W,A6
+	JSR		_LVODoIO(a6)
+
+.Quit:
+	; close cdtv.device if open
+
+	tst.l	D6
+	bne	.Free
+	MOVE.L	io_request(pc),D1
+	beq	.End
+	move.l	D1,A1
+	move.l	$4.W,A6
+	jsr	_LVOCloseDevice(a6)
+
+.Free:		
+	; free the memory
+
+	MOVEQ	#40,D0
+	move.l	io_request(pc),A1
+	move.l	$4.W,A6
+	JSR		_LVOFreeMem(a6)
+.End:
+	movem.l	(a7)+,d0-a6
+	rts
+	
 save_highscores
     tst.w   cheat_keys
     bne.b   .out
@@ -7697,12 +7790,17 @@ _gfxbase
     dc.l    0
 _resload
     dc.l    0
+io_request:
+	dc.l	0
 _keyexit
     dc.b    $59
 scores_name
     dc.b    "amidar.high",0
 highscore_needs_saving
     dc.b    0
+cdtvname:
+	dc.b	"cdtv.device",0
+
 graphicsname:   dc.b "graphics.library",0
 dosname
         dc.b    "dos.library",0
@@ -7905,9 +8003,6 @@ pause_flag
     dc.b    0
 quit_flag
     dc.b    0
-elroy_mode_lock:
-    dc.b    0
-
 
 invincible_cheat_flag
     dc.b    0
@@ -7937,7 +8032,7 @@ crash_respawn_delay_table
 score_table
     dc.w    0,1,5
 nb_enemy_table
-    dc.w    4,4,5,5,6,6
+    dc.w    4,4,5,6,6,6
 	; not sure it's accurate, well, doesn't matter, as the arcade
 	; game came with different versions and skill levels.
 standby_time_table
@@ -8101,29 +8196,10 @@ square_table:
 	rept	256
 	dc.w	REPTN*REPTN
 	endr
-   
-; truth table to avoid testing for several directions where there's only once choice
-; (one bit set)
-no_direction_choice_table:
-    dc.b    $ff   ; 0=not possible
-    dc.b    RIGHT   ; 1
-    dc.b    DOWN   ; 2
-    dc.b    $ff   ; 3=composite
-    dc.b    LEFT   ; 4=UP
-    dc.b    $ff   ; 5=composite
-    dc.b    $ff   ; idem
-    dc.b    $ff   ; idem
-    dc.b    UP   ; 8
-    ; all the rest is composite or invalid
-    REPT    7
-    dc.b    $ff
-    ENDR
-    even
     
     
 score_value_table
     dc.l    20,40,80,160
-
 
 
 
