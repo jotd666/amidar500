@@ -50,11 +50,14 @@ CREDITS:
 
 MINOR ISSUES:
 
-- paint sound stops with a slight increase of volume
+- restore full 256 wide layout
+- paint sound should stop with a slight increase of volume
+- pause with second button doesn't work
 - small bits of paint not removed when rolling back
 - sometimes palette mixups when enemies are frightened and some are hanging/falling/killed
 - in VERY rare cases, power music doesn't loop properly
-
+- impossible to get 3200 points
+  
 BUILDING FROM SOURCES:
 
 Prerequesites:

@@ -394,7 +394,8 @@ Start:
     tst.l   _resload
     bne.b   .no_forbid
     move.l  _gfxbase(pc),a4
-    move.l StartList(a4),gfxbase_copperlist
+    move.l  StartList(a4),gfxbase_copperlist
+	move.l	34(A4),gfxbase_actiview			; gb_ActiView	| 
 
     move.l  4,a6
     jsr _LVOForbid(a6)
@@ -405,13 +406,14 @@ Start:
 	move.l	#-1,pr_WindowPtr(A0)	; no more system requesters (insert volume, write protected...)
 
     
-.no_forbid
     
-;    sub.l   a1,a1
-;    move.l  a4,a6
-;    jsr (_LVOLoadView,a6)
-;    jsr (_LVOWaitTOF,a6)
-;    jsr (_LVOWaitTOF,a6)
+    sub.l   a1,a1
+    move.l  a4,a6
+    jsr (_LVOLoadView,a6)
+    jsr (_LVOWaitTOF,a6)
+    jsr (_LVOWaitTOF,a6)
+	
+.no_forbid
 
     move.w  #STATE_INTRO_SCREEN,current_state
     
@@ -426,13 +428,8 @@ Start:
     bsr init_state_transition_table
     bsr init_sound
     
-    ; shut off dma
-    lea _custom,a5
-    move.w  #$7FFF,(intena,a5)
-    move.w  #$7FFF,(intreq,a5)
-    move.w #$03E0,dmacon(A5)
-
     bsr init_interrupts
+
     ; intro screen
     
     
@@ -714,21 +711,30 @@ intro:
 	rts
     
 .normal_end
+    bsr     finalize_sound
     bsr     restore_interrupts
     bsr     wait_blit
-    bsr     finalize_sound
+
+	
+    move.l  4.W,A6
+    jsr _LVOPermit(a6)                  ; Task Switching autorisé
+
+
 	; restart CDTV device
     move.l  #CMD_START,d0
     bsr send_cdtv_command
 
+
     bsr     save_highscores
 
     lea _custom,a5
+    move.l  gfxbase_copperlist,cop1lc(a5) ; adresse du début de la liste
     move.l  _gfxbase,a1
     move.l  gfxbase_copperlist,StartList(a1) ; adresse du début de la liste
-    move.l  gfxbase_copperlist,cop1lc(a5) ; adresse du début de la liste
-    clr.w  copjmp1(a5)
-    ;;move.w #$8060,dmacon(a5)        ; réinitialisation du canal DMA
+    move.l  gfxbase_actiview,StartList(a1) ; adresse du début de la liste
+	move.l	a1,a6
+	move.l	gfxbase_actiview,a1
+	jsr		_LVOLoadView(a6)
     
     move.l  4.W,A6
     move.l  _gfxbase,a1
@@ -736,7 +742,8 @@ intro:
     move.l  _dosbase,a1
     jsr _LVOCloseLibrary(a6)
     
-    jsr _LVOPermit(a6)                  ; Task Switching autorisé
+	blitz
+	
     moveq.l #0,d0
     rts
 
@@ -3461,15 +3468,6 @@ store_sprite_copperlist
     move.w  d0,(2,a0)
     rts
 
-
-   ; copy the maze initial data that is destroyed when playing
-    lea     maze_2_wall_table,a1
-   lea     maze_wall_table_copy,a0
-    move.l  a0,maze_wall_table
-    move.w  #(NB_TILES_PER_LINE*NB_TILE_LINES)-1,d0
-.copy
-    move.b  (a1)+,(a0)+
-    dbf     d0,.copy
     
 init_dots:
     ; init dots
@@ -3688,11 +3686,15 @@ init_sound
     rts
     
 init_interrupts
-    lea _custom,a6
-    sub.l   a0,a0
+    lea _custom,a5
 
-    move.w  (dmaconr,a6),saved_dmacon
-    move.w  (intenar,a6),saved_intena
+    move.w  (dmaconr,a5),saved_dmacon
+    move.w  (intenar,a5),saved_intena
+	
+    ; shut off dma & interrupts now
+    move.w  #$7FFF,(intena,a5)
+    move.w  #$7FFF,(intreq,a5)
+    move.w #$03E0,dmacon(A5)
 
     sub.l   a0,a0
     ; assuming VBR at 0
@@ -3775,12 +3777,14 @@ restore_interrupts:
 
 
     lea _custom,a6
-
+	move.w	#$7FFF,(dmacon,a6)
+	move.w	#$7FFF,(intena,a6)
+	
     move.w  saved_dmacon,d0
-    bset    #15,d0
+	or.w	#$C000,d0
     move.w  d0,(dmacon,a6)
     move.w  saved_intena,d0
-    bset    #15,d0
+	or.w	#$8000,d0
     move.w  d0,(intena,a6)
 
 
@@ -7810,6 +7814,8 @@ dosname
     
     ; variables
 gfxbase_copperlist
+    dc.l    0
+gfxbase_actiview
     dc.l    0
     
 previous_random
