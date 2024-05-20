@@ -44,13 +44,14 @@ CREDITS:
 - Andrzej Dobrowolski (aka no9): music/sfx conversion
 - Frank Wille (aka phx): sfx/module player
 - meynaf: random routine
+- DanyPPC: icon
 - eab forum: useful advice & support
 - Superjustinbros: sprite rips https://www.spriters-resource.com/arcade/amidar
 - konami: original game :)
 
 MINOR ISSUES:
 
-- restore full 256 wide layout
+- restore full 256-pixel wide layout
 - paint sound should stop with a slight increase of volume
 - pause with second button doesn't work
 - small bits of paint not removed when rolling back
