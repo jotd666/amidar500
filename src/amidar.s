@@ -2318,11 +2318,13 @@ PLAYER_ONE_Y = 102-14
     rts
 
 stop_sounds
-    bsr stop_paint_sound
+ 	movem.l	d0-a6,-(a7)
+	bsr stop_paint_sound
     lea _custom,a6
     clr.b   music_playing
-    bra _mt_end
-
+    bsr _mt_end
+	movem.l	(a7)+,d0-a6
+	rts
 
 
 ; < D2: highscore
@@ -3962,7 +3964,7 @@ level2_interrupt:
 	move.w	#8,_custom+intreq
 	rte
 	
-toggle_pause
+toggle_pause:
 	eor.b   #1,pause_flag
 	beq.b	.out
 	bsr		stop_sounds
@@ -4034,19 +4036,17 @@ level3_interrupt:
     moveq.l #1,d0
     bsr _read_joystick
     
-    
     btst    #JPB_BTN_BLU,d0
     beq.b   .no_second
     move.l  joystick_state(pc),d2
     btst    #JPB_BTN_BLU,d2
-    bne.b   .no_second
+    bne.b   .no_second				; already pressed
 
     ; no pause if not in game
     cmp.w   #STATE_PLAYING,current_state
     bne.b   .no_second
     tst.b   demo_mode
     bne.b   .no_second
-    
     bsr		toggle_pause
 .no_second
     lea keyboard_table(pc),a0
@@ -4083,7 +4083,10 @@ level3_interrupt:
     move.w  #$0040,(intreq,a5) 
     movem.l (a7)+,d0-a6
     rte
-
+.FUCK
+	move.w	#$F00,$DFF180
+	bra.b	.no_second
+	
 vbl_counter:
     dc.w    0
 
