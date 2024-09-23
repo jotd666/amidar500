@@ -286,11 +286,11 @@ game_palette_level_2_sprites = """
 
 game_palette_txt = game_palette_level_1+game_palette_level_1_sprites
 game_palette = bitplanelib.palette_dcw2palette(game_palette_txt)
-bitplanelib.palette_dump(game_palette,r"../src/palette.s",as_copperlist=False)
+bitplanelib.palette_dump(game_palette,r"../src/palette.s")
 game_palette_16 = game_palette[0:16]
 
 alt_sprite_palette = bitplanelib.palette_dcw2palette(game_palette_level_2_sprites)
-bitplanelib.palette_dump(alt_sprite_palette,r"../src/alt_palette.s",as_copperlist=False)
+bitplanelib.palette_dump(alt_sprite_palette,r"../src/alt_palette.s")
 
 
 outdir = "dumps"

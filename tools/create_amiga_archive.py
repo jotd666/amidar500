@@ -8,6 +8,9 @@ os.environ["PATH"] += os.pathsep+r"K:\progs\cli"
 
 cmd_prefix = ["make","-f","makefile"]
 
+subprocess.check_call(cmd_prefix+["clean"],cwd=os.path.join(progdir,"src"))
+for s in ["convert_sounds.py","convert_sprites.py"]:
+    subprocess.check_call(["cmd","/c",s],cwd=os.path.join(progdir,"assets"))
 
 subprocess.check_call(cmd_prefix,cwd=os.path.join(progdir,"src"))
 # create archive
