@@ -1,8 +1,9 @@
-import os,bitplanelib,json
+import os,bitplanelib,json,pathlib
 from PIL import Image
 
-sprites_dir = "sprites"
-
+this_dir = pathlib.Path(__file__).parent.absolute()
+sprites_dir = this_dir / "sprites"
+sprites_dir.mkdir(exist_ok=True)
 #for level 2 (paint)
 square_scores = [x//10 for x in [500,350,300,250,280,150,100,450,400,450,280,230,200,300,
 700,450,280,230,200,150,100,450,400,330,250,280,230,150,300,
@@ -286,17 +287,18 @@ game_palette_level_2_sprites = """
 
 game_palette_txt = game_palette_level_1+game_palette_level_1_sprites
 game_palette = bitplanelib.palette_dcw2palette(game_palette_txt)
-bitplanelib.palette_dump(game_palette,r"../src/palette.s")
+bitplanelib.palette_dump(game_palette,str(this_dir / r"../src/palette.s"))
 game_palette_16 = game_palette[0:16]
 
 alt_sprite_palette = bitplanelib.palette_dcw2palette(game_palette_level_2_sprites)
-bitplanelib.palette_dump(alt_sprite_palette,r"../src/alt_palette.s")
+bitplanelib.palette_dump(alt_sprite_palette,str(this_dir / r"../src/alt_palette.s"))
 
 
-outdir = "dumps"
+outdir = this_dir/"dumps"
+outdir.mkdir(exist_ok=True)
 
 def process_tiles():
-    json_file = "tiles.json"
+    json_file = this_dir/"tiles.json"
     with open(json_file) as f:
         tiles = json.load(f)
 
@@ -357,11 +359,11 @@ def process_tiles():
                     raise Exception("{} (frame #{}) width (as sprite) should 16, found {}".format(name,i,x_size))
                 if sprite_palette:
                     sprite_palette = [tuple(x) for x in sprite_palette]
-                    bitplanelib.palette_dump(sprite_palette,"../{}/{}.s".format("src",name))
+                    bitplanelib.palette_dump(sprite_palette,str(this_dir / "../{}/{}.s".format("src",name)))
                 else:
                     sprite_palette_offset = 16+(sprite_number//2)*4
                     sprite_palette = game_palette[sprite_palette_offset:sprite_palette_offset+4]
-                bin_base = "../{}/{}_{}.bin".format(sprites_dir,name,i) if nb_frames != 1 else "../{}/{}.bin".format(sprites_dir,name)
+                bin_base = sprites_dir /"{}_{}.bin".format(name,i) if nb_frames != 1 else sprites_dir / "{}.bin".format(name)
                 print("processing sprite {}...".format(name))
                 bitplanelib.palette_image2sprite(cropped_img,bin_base,
                     sprite_palette,palette_precision_mask=0xF0)
@@ -382,7 +384,7 @@ def process_tiles():
                 namei = "{}_{}".format(name,i) if nb_frames!=1 else name
 
                 print("processing bob {}...".format(name))
-                bitplanelib.palette_image2raw(img,"../{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,
+                bitplanelib.palette_image2raw(img,sprites_dir /"{}.bin".format(name_dict.get(namei,namei)),used_palette,
                 palette_precision_mask=0xF0,generate_mask=generate_mask)
 
 def process_fonts(dump=False):
@@ -458,7 +460,7 @@ def process_fonts(dump=False):
             used_palette = p if len(p)==2 else game_palette
 
             namei = "{}_{}".format(name,i) if nb_frames != 1 else name
-            bitplanelib.palette_image2raw(img,"../{}/{}.bin".format(sprites_dir,name_dict.get(namei,namei)),used_palette,palette_precision_mask=0xF0)
+            bitplanelib.palette_image2raw(img,str(sprites_dir / "{}.bin".format(name_dict.get(namei,namei))),used_palette,palette_precision_mask=0xF0)
 
 process_intro_maze()
 

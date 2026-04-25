@@ -1,14 +1,15 @@
-import subprocess,os,struct
+import subprocess,os,struct,pathlib
 
 # BTW convert wav to mp3: ffmpeg -i input.wav -codec:a libmp3lame -b:a 330k output.mp3
 
-sox = r"k:\progs\sox-14-4-2\sox.exe"
+sox = r"sox.exe"
+this_dir = pathlib.Path(__file__).parent.absolute()
 
 wav_files = ["jump.wav","credit.wav",
 "eat.wav","enemy_falling.wav","extra_life.wav","enemy_hit.wav","ping.wav","thief_attacks.wav",
 "enemy_killed.wav","player_killed.wav","lose_bonus.wav","paint.wav","filled.wav"]
-outdir = "../sounds"
-
+outdir = this_dir / "../sounds"
+outdir.mkdir(exist_ok=True)
 
 sampling_rate = 22050
 alt_sampling_rate = 16000
