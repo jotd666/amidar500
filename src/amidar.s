@@ -8750,23 +8750,23 @@ police\1_kill_1
     dc.l    0
 police\1_score_200:
     dc.l    0
-    incbin  "scores_200.bin"
+    incbin  "scores_0.bin"
     dc.l    0
 police\1_score_400:
     dc.l    0
-    incbin  "scores_400.bin"
+    incbin  "scores_1.bin"
     dc.l    0
 police\1_score_800:
     dc.l    0
-    incbin  "scores_800.bin"
+    incbin  "scores_2.bin"
     dc.l    0
 police\1_score_1600:
     dc.l    0
-    incbin  "scores_1600.bin"
+    incbin  "scores_3.bin"
     dc.l    0
 police\1_score_3200:
     dc.l    0
-    incbin  "scores_3200.bin"
+    incbin  "scores_4.bin"
     dc.l    0
 
     ENDM

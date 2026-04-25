@@ -384,6 +384,7 @@ def process_tiles():
                 namei = "{}_{}".format(name,i) if nb_frames!=1 else name
 
                 print("processing bob {}...".format(name))
+                print(namei)
                 bitplanelib.palette_image2raw(img,sprites_dir /"{}.bin".format(name_dict.get(namei,namei)),used_palette,
                 palette_precision_mask=0xF0,generate_mask=generate_mask)
 
